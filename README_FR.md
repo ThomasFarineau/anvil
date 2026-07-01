@@ -1,8 +1,9 @@
 <div align="center">
-  <img src="./logo.svg" width="96" height="96" alt="anvil" />
+  <img src="https://raw.githubusercontent.com/ThomasFarineau/anvil/refs/heads/main/logo.svg" width="96" height="96" alt="anvil" />
   <h1>anvil</h1>
   <p>Crée un launcher Minecraft natif en écrivant seulement du HTML.<br>Le backend Rust gère tout le reste.</p>
 
+  [![npm](https://img.shields.io/npm/v/%40thomasfarineau%2Fanvil?style=flat-square)](https://www.npmjs.com/package/@thomasfarineau/anvil)
   [![release](https://img.shields.io/github/v/release/ThomasFarineau/anvil?style=flat-square)](https://github.com/ThomasFarineau/anvil/releases)
   [![license](https://img.shields.io/github/license/ThomasFarineau/anvil?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/ThomasFarineau/anvil/ci.yml?style=flat-square&label=CI)](https://github.com/ThomasFarineau/anvil/actions)
@@ -29,7 +30,7 @@ Vous ne touchez qu'au **frontend**.
 ## Démarrage rapide
 
 ```bash
-npx anvil create mon-launcher
+npx @thomasfarineau/anvil create mon-launcher
 cd mon-launcher
 npm install
 npm run dev
@@ -38,7 +39,7 @@ npm run dev
 Ou dans un projet existant :
 
 ```bash
-npm install -D anvil
+npm install -D @thomasfarineau/anvil
 npx anvil init
 npm run dev
 ```
@@ -47,7 +48,7 @@ npm run dev
 
 | Commande | Description |
 |---|---|
-| `npx anvil create <nom>` | Crée un nouveau projet dans `<nom>/` |
+| `npx @thomasfarineau/anvil create <nom>` | Crée un nouveau projet dans `<nom>/` |
 | `npx anvil init` | Initialise anvil dans le dossier courant |
 | `npx anvil dev` | Lance le launcher en mode développement |
 | `npx anvil build` | Compile le launcher pour la distribution |
@@ -69,7 +70,7 @@ mon-launcher/
 
 ```json
 {
-  "$schema": "node_modules/anvil/src/client/config.schema.json",
+  "$schema": "node_modules/@thomasfarineau/anvil/src/client/config.schema.json",
   "identifier": "com.monentreprise.launcher",
   "app_name": "Mon Launcher",
   "data_folder": ".mon-launcher",
