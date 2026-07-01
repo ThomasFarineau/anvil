@@ -1,0 +1,37 @@
+{
+  "name": "@thomasfarineau/anvil",
+  "version": "0.0.1",
+  "description": "Zero-config Minecraft launcher framework built on Tauri",
+  "keywords": [
+    "launcher",
+    "minecraft",
+    "tauri"
+  ],
+  "license": "MIT",
+  "bin": {
+    "anvil": "src/cli.cjs",
+    "create-anvil": "src/cli.cjs"
+  },
+  "files": [
+    "src/"
+  ],
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "lint": "oxlint .",
+    "format": "oxfmt .",
+    "check": "bun run lint && bun run format"
+  },
+  "dependencies": {
+    "@tauri-apps/cli": "^2",
+    "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "oxfmt": "^0.57.0",
+    "oxlint": "^1.72.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,10 @@
+.git/
+.idea/
+node_modules/
+app/
+example/
+tests/
+*.iml
+bun.lock
+oxlint.config.ts
+oxfmt.config.ts
