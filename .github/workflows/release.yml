@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -44,6 +45,15 @@ jobs:
           git commit -m "chore: release v${{ steps.version.outputs.value }}"
           git tag v${{ steps.version.outputs.value }}
           git push origin main --follow-tags
+
+      - name: Publish to GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         run: |
