@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "anvil dev",
+    "build": "anvil build"
+  },
+  "devDependencies": {
+    "anvil": "link:anvil"
+  }
+}
