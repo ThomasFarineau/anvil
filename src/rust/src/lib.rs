@@ -1,0 +1,1104 @@
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use chrono::Local;
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+// ── URLs ──────────────────────────────────────────────────────────────────────
+
+const MANIFEST_URL:  &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
+
+// ── Config (config.json) ──────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InstanceConfig {
+    pub id:             String,
+    pub name:           String,
+    pub mc_version:     String,
+    #[serde(default)] pub loader:         String,
+    #[serde(default)] pub loader_version: String,
+    #[serde(default)] pub server_ip:      String,
+    #[serde(default = "default_port")] pub server_port: u16,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LauncherConfig {
+    #[serde(default)]                          pub identifier:         String,
+    #[serde(default = "default_data_folder")] pub data_folder:        String,
+    #[serde(default = "default_java")]         pub java_version:       u8,
+    #[serde(default)]                          pub update_url:         String,
+    #[serde(default = "default_app_name")]     pub app_name:           String,
+    #[serde(default = "default_true")]         pub window_decorations: bool,
+    #[serde(default = "default_true")]         pub window_resizable:   bool,
+    #[serde(default)]                          pub logo:               String,
+    #[serde(default = "default_session")]      pub session:            String,
+    #[serde(default)]                          pub instances:          Vec<InstanceConfig>,
+}
+
+fn default_data_folder() -> String { "HomeLauncher".into() }
+fn default_app_name()    -> String { "HomeLauncher".into() }
+fn default_java()        -> u8     { 21 }
+fn default_port()        -> u16    { 25565 }
+fn default_true()        -> bool   { true }
+fn default_session()     -> String { "none".into() }
+
+impl Default for LauncherConfig {
+    fn default() -> Self {
+        Self {
+            identifier:         String::new(),
+            data_folder:        default_data_folder(),
+            java_version:       default_java(),
+            update_url:         String::new(),
+            app_name:           default_app_name(),
+            window_decorations: true,
+            window_resizable:   true,
+            logo:               String::new(),
+            session:            default_session(),
+            instances:          Vec::new(),
+        }
+    }
+}
+
+// ── Settings utilisateur ──────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Settings {
+    #[serde(default)] pub username:     String,
+    #[serde(default)] pub launcher_dir: Option<String>,
+    #[serde(default = "default_memory")] pub max_memory: u32,
+}
+
+fn default_memory() -> u32 { 2048 }
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { username: String::new(), launcher_dir: None, max_memory: default_memory() }
+    }
+}
+
+// ── Session custom ────────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CustomSession {
+    pub username:     String,
+    pub uuid:         String,
+    pub access_token: String,
+}
+
+// ── État global ───────────────────────────────────────────────────────────────
+
+pub struct AppState {
+    pub config:         LauncherConfig,
+    pub settings:       Mutex<Settings>,
+    pub data_dir:       PathBuf,
+    pub custom_session: Mutex<Option<CustomSession>>,
+}
+
+// ── Types Mojang (internes) ───────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ManifestJson { versions: Vec<ManifestEntry> }
+
+#[derive(Deserialize)]
+struct ManifestEntry { id: String, url: String }
+
+#[derive(Deserialize, Default)]
+struct VersionJson {
+    #[serde(rename = "mainClass", default)] main_class:  String,
+    #[serde(default)] assets:    String,
+    #[serde(rename = "assetIndex")] asset_index: Option<AssetIndexRef>,
+    #[serde(default)] downloads: HashMap<String, FileDownload>,
+    #[serde(default)] libraries: Vec<LibEntry>,
+    arguments:        Option<GameArgs>,
+    #[serde(rename = "minecraftArguments")] legacy_args: Option<String>,
+    #[serde(rename = "inheritsFrom")] inherits_from: Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct AssetIndexRef { id: String, url: String }
+
+#[derive(Deserialize, Clone)]
+struct FileDownload {
+    #[serde(default)] url: String,
+    path: Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct LibEntry {
+    name:      String,
+    downloads: Option<LibDownloads>,
+    rules:     Option<Vec<OsRule>>,
+    url:       Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct LibDownloads {
+    artifact:    Option<FileDownload>,
+    classifiers: Option<HashMap<String, FileDownload>>,
+}
+
+#[derive(Deserialize, Clone)]
+struct OsRule { action: String, os: Option<OsSpec> }
+
+#[derive(Deserialize, Clone)]
+struct OsSpec { name: Option<String> }
+
+#[derive(Deserialize, Clone, Default)]
+struct GameArgs {
+    #[serde(default)] game: Vec<serde_json::Value>,
+    #[serde(default)] jvm:  Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct AssetIndex { objects: HashMap<String, AssetObj> }
+
+#[derive(Deserialize)]
+struct AssetObj { hash: String }
+
+// ── Types Adoptium ────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AdoptiumEntry { binary: AdoptiumBinary }
+#[derive(Deserialize)]
+struct AdoptiumBinary { package: AdoptiumPackage }
+#[derive(Deserialize)]
+struct AdoptiumPackage { link: String }
+
+// ── Types updater ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct UpdateManifest {
+    version: String,
+    #[serde(default)] windows: String,
+    #[serde(default)] linux:   String,
+    #[serde(default)] macos:   String,
+    #[serde(default)] notes:   String,
+}
+
+// ── Events Tauri ──────────────────────────────────────────────────────────────
+
+#[derive(Serialize, Clone)]
+struct SetupProgress { step: String, current: usize, total: usize, label: String, #[serde(default)] error: bool }
+
+#[derive(Serialize, Clone)]
+struct GameOutput { instance_id: String, text: String, stderr: bool }
+
+#[derive(Serialize, Clone)]
+pub struct InstanceStatus {
+    pub id:        String,
+    pub name:      String,
+    pub installed: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct InitStatus {
+    pub launcher_dir: String,
+    pub java_ok:      bool,
+    pub instances:    Vec<InstanceStatus>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub url:     String,
+    pub notes:   String,
+}
+
+// ── Utilitaires OS ────────────────────────────────────────────────────────────
+
+fn os_name() -> &'static str {
+    if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "osx" } else { "linux" }
+}
+
+fn native_classifier() -> &'static str {
+    if cfg!(windows) { "natives-windows" } else if cfg!(target_os = "macos") { "natives-osx" } else { "natives-linux" }
+}
+
+// ── Chemins ───────────────────────────────────────────────────────────────────
+
+fn default_launcher_dir(cfg: &LauncherConfig) -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default())
+        .join(&cfg.data_folder)
+}
+
+fn get_launcher_dir(s: &Settings, cfg: &LauncherConfig) -> PathBuf {
+    s.launcher_dir.as_deref().map(PathBuf::from).unwrap_or_else(|| default_launcher_dir(cfg))
+}
+
+/// Dossier partagé : versions, libraries, assets
+fn shared_game_dir(launcher_dir: &Path) -> PathBuf { launcher_dir.join("game") }
+
+/// Dossier propre à l'instance : saves, options.txt, etc.
+fn instance_data_dir(launcher_dir: &Path, instance: &InstanceConfig) -> PathBuf {
+    launcher_dir.join("instances").join(&instance.id)
+}
+
+fn log_dir(launcher_dir: &Path) -> PathBuf { launcher_dir.join("logs") }
+
+fn find_bundled_java(launcher_dir: &Path) -> Option<PathBuf> {
+    let java_dir = launcher_dir.join("java");
+    let bin = if cfg!(windows) { "javaw.exe" } else { "java" };
+    let direct = java_dir.join("bin").join(bin);
+    if direct.exists() { return Some(direct); }
+    if let Ok(entries) = std::fs::read_dir(&java_dir) {
+        for e in entries.flatten() {
+            if e.path().is_dir() {
+                let c = e.path().join("bin").join(bin);
+                if c.exists() { return Some(c); }
+            }
+        }
+    }
+    None
+}
+
+fn version_folder(inst: &InstanceConfig) -> String {
+    if !inst.loader.is_empty() {
+        format!("{}-loader-{}-{}", inst.loader, inst.loader_version, inst.mc_version)
+    } else {
+        inst.mc_version.clone()
+    }
+}
+
+fn is_instance_installed(launcher_dir: &Path, inst: &InstanceConfig) -> bool {
+    let ver_id = version_folder(inst);
+    shared_game_dir(launcher_dir)
+        .join("versions").join(&ver_id).join(format!("{ver_id}.json"))
+        .exists()
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+
+fn launcher_log(log_dir: &Path, msg: &str) {
+    let _ = std::fs::create_dir_all(log_dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true).append(true).open(log_dir.join("launcher.log"))
+    {
+        let ts = Local::now().format("%Y-%m-%d %H:%M:%S");
+        let _ = writeln!(f, "[{ts}] {msg}");
+    }
+}
+
+// ── Chargement config.json ────────────────────────────────────────────────────
+
+fn find_config_json(app: &AppHandle) -> LauncherConfig {
+    if let Ok(res) = app.path().resource_dir() {
+        let p = res.join("config.json");
+        if let Ok(s) = std::fs::read_to_string(&p) {
+            if let Ok(cfg) = serde_json::from_str::<LauncherConfig>(&s) { return cfg; }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(PathBuf::from);
+        for _ in 0..8 {
+            if let Some(d) = dir.take() {
+                let p = d.join("config.json");
+                if let Ok(s) = std::fs::read_to_string(&p) {
+                    if let Ok(cfg) = serde_json::from_str::<LauncherConfig>(&s) { return cfg; }
+                }
+                dir = d.parent().map(PathBuf::from);
+            }
+        }
+    }
+    LauncherConfig::default()
+}
+
+// ── Utilitaires JSON ──────────────────────────────────────────────────────────
+
+fn load_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
+    std::fs::read_to_string(path).ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    if let Some(p) = path.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
+    std::fs::write(path, serde_json::to_string_pretty(value).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
+}
+
+// ── Utilitaires Minecraft ─────────────────────────────────────────────────────
+
+fn lib_applies(lib: &LibEntry) -> bool {
+    let Some(rules) = &lib.rules else { return true };
+    let mut allow = false;
+    for rule in rules {
+        let os_match = rule.os.as_ref().and_then(|o| o.name.as_deref())
+            .map_or(true, |n| n == os_name());
+        if os_match { allow = rule.action == "allow"; }
+    }
+    allow
+}
+
+fn maven_path(name: &str) -> String {
+    let p: Vec<&str> = name.splitn(3, ':').collect();
+    if p.len() < 3 { return name.replace(':', "/"); }
+    format!("{}/{}/{}/{}-{}.jar", p[0].replace('.', "/"), p[1], p[2], p[1], p[2])
+}
+
+async fn http_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    client.get(url).send().await.map_err(|e| format!("GET {url}: {e}"))?
+        .bytes().await.map_err(|e| e.to_string()).map(|b| b.to_vec())
+}
+
+async fn save_if_missing(client: &reqwest::Client, url: &str, dest: &Path) -> Result<(), String> {
+    if dest.exists() { return Ok(()); }
+    if let Some(p) = dest.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
+    let bytes = http_bytes(client, url).await?;
+    std::fs::write(dest, &bytes).map_err(|e| e.to_string())
+}
+
+fn unzip_natives(zip_bytes: &[u8], dest: &Path) -> Result<(), String> {
+    use std::io::Read;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes))
+        .map_err(|e| e.to_string())?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        if file.is_dir() || file.name().starts_with("META-INF") { continue; }
+        let out = dest.join(file.name());
+        if let Some(p) = out.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        std::fs::write(&out, &buf).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn extract_zip_file(archive: &Path, dest: &Path) -> Result<(), String> {
+    use std::io::Read;
+    let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+        if entry.is_dir() { continue; }
+        let out = dest.join(entry.name());
+        if let Some(p) = out.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        std::fs::write(&out, &buf).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn extract_tgz(archive: &Path, dest: &Path) -> Result<(), String> {
+    let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+    let gz   = flate2::read::GzDecoder::new(file);
+    let mut tar = tar::Archive::new(gz);
+    tar.unpack(dest).map_err(|e| e.to_string())
+}
+
+fn fnv64(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.bytes() { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); }
+    h
+}
+
+// ── Commandes Tauri ───────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_server_config(state: State<AppState>) -> LauncherConfig { state.config.clone() }
+
+#[tauri::command]
+fn get_settings(state: State<AppState>) -> Settings { state.settings.lock().unwrap().clone() }
+
+#[tauri::command]
+fn save_settings(state: State<AppState>, settings: Settings) -> Result<(), String> {
+    save_json(&state.data_dir.join("settings.json"), &settings)?;
+    *state.settings.lock().unwrap() = settings;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_default_launcher_dir(state: State<AppState>) -> String {
+    default_launcher_dir(&state.config).to_string_lossy().into()
+}
+
+#[tauri::command]
+fn get_init_status(state: State<AppState>) -> InitStatus {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let instances    = state.config.instances.iter().map(|inst| InstanceStatus {
+        id:        inst.id.clone(),
+        name:      inst.name.clone(),
+        installed: is_instance_installed(&launcher_dir, inst),
+    }).collect();
+    InitStatus {
+        launcher_dir: launcher_dir.to_string_lossy().into(),
+        java_ok: find_bundled_java(&launcher_dir).is_some(),
+        instances,
+    }
+}
+
+// ── Streaming download ────────────────────────────────────────────────────────
+
+async fn download_to_file(
+    app:    &AppHandle,
+    client: &reqwest::Client,
+    url:    &str,
+    dest:   &Path,
+    step:   &str,
+    label:  &str,
+) -> Result<(), String> {
+    if let Some(p) = dest.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
+    let resp  = client.get(url).send().await.map_err(|e| e.to_string())?;
+    let total = resp.content_length().unwrap_or(0) as usize;
+    let mut file       = std::fs::File::create(dest).map_err(|e| e.to_string())?;
+    let mut stream     = resp.bytes_stream();
+    let mut downloaded = 0usize;
+    let mut last_emit  = 0usize;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len();
+        if downloaded - last_emit > 256 * 1024 || (total > 0 && downloaded >= total) {
+            last_emit = downloaded;
+            let pct      = if total > 0 { downloaded * 100 / total } else { 0 };
+            let mb       = downloaded / (1024 * 1024);
+            let total_mb = total     / (1024 * 1024);
+            let _ = app.emit("setup:progress", SetupProgress {
+                step:    step.to_string(),
+                current: pct,
+                total:   100,
+                label:   format!("{label} ({mb}/{total_mb} MB)"),
+                error:   false,
+            });
+        }
+    }
+    Ok(())
+}
+
+// ── Installation Java ─────────────────────────────────────────────────────────
+
+async fn install_java_bundled(app: &AppHandle, launcher_dir: &Path, java_major: u8) -> Result<(), String> {
+    let client = reqwest::Client::builder().user_agent("HomeLauncher/1.0").build()
+        .map_err(|e| e.to_string())?;
+    let os   = if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "mac" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" };
+    let api  = format!(
+        "https://api.adoptium.net/v3/assets/latest/{java_major}/hotspot?os={os}&arch={arch}&image_type=jre"
+    );
+
+    let _ = app.emit("setup:progress", SetupProgress {
+        step: "java".into(), current: 0, total: 100,
+        label: "Récupération des infos Java...".into(), error: false,
+    });
+
+    let entries: Vec<AdoptiumEntry> = client.get(&api).send().await
+        .map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    let url = &entries.first().ok_or("Aucune version Java sur Adoptium")?.binary.package.link;
+    let ext = if cfg!(windows) { "java_jre.zip" } else { "java_jre.tar.gz" };
+    let archive = launcher_dir.join(ext);
+
+    download_to_file(app, &client, url, &archive, "java", "Java JRE").await?;
+
+    let _ = app.emit("setup:progress", SetupProgress {
+        step: "java".into(), current: 95, total: 100, label: "Extraction...".into(), error: false,
+    });
+    let java_dir = launcher_dir.join("java");
+    std::fs::create_dir_all(&java_dir).map_err(|e| e.to_string())?;
+    if cfg!(windows) { extract_zip_file(&archive, &java_dir)?; } else { extract_tgz(&archive, &java_dir)?; }
+    std::fs::remove_file(&archive).ok();
+
+    let _ = app.emit("setup:progress", SetupProgress {
+        step: "java".into(), current: 100, total: 100, label: "Java installé.".into(), error: false,
+    });
+    Ok(())
+}
+
+// ── Installation Minecraft ────────────────────────────────────────────────────
+
+async fn install_vanilla(
+    app:      &AppHandle,
+    client:   &reqwest::Client,
+    game_dir: &Path,
+    inst:     &InstanceConfig,
+) -> Result<(), String> {
+    macro_rules! prog {
+        ($c:expr, $l:expr) => {
+            let _ = app.emit("setup:progress", SetupProgress {
+                step: inst.id.clone(), current: $c, total: 100, label: $l.to_string(), error: false,
+            });
+        };
+    }
+
+    prog!(0, "Manifeste Minecraft...");
+    let manifest: ManifestJson = client.get(MANIFEST_URL).send().await
+        .map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    let entry = manifest.versions.iter().find(|v| v.id == inst.mc_version)
+        .ok_or_else(|| format!("Version {} introuvable", inst.mc_version))?;
+
+    prog!(3, "Métadonnées...");
+    let ver_dir  = game_dir.join("versions").join(&inst.mc_version);
+    std::fs::create_dir_all(&ver_dir).map_err(|e| e.to_string())?;
+    let json_path = ver_dir.join(format!("{}.json", inst.mc_version));
+    if !json_path.exists() {
+        let raw = http_bytes(client, &entry.url).await?;
+        std::fs::write(&json_path, &raw).map_err(|e| e.to_string())?;
+    }
+    let ver: VersionJson = serde_json::from_str(
+        &std::fs::read_to_string(&json_path).map_err(|e| e.to_string())?
+    ).map_err(|e| e.to_string())?;
+
+    prog!(6, "Client Minecraft...");
+    if let Some(dl) = ver.downloads.get("client") {
+        save_if_missing(client, &dl.url, &ver_dir.join(format!("{}.jar", inst.mc_version))).await?;
+    }
+
+    let libs_dir    = game_dir.join("libraries");
+    let natives_dir = ver_dir.join("natives");
+    std::fs::create_dir_all(&natives_dir).map_err(|e| e.to_string())?;
+    let libs: Vec<&LibEntry> = ver.libraries.iter().filter(|l| lib_applies(l)).collect();
+    for (i, lib) in libs.iter().enumerate() {
+        if i % 5 == 0 {
+            prog!(6 + i * 44 / libs.len().max(1), format!("Bibliothèques ({}/{})", i + 1, libs.len()));
+        }
+        if let Some(dls) = &lib.downloads {
+            if let Some(art) = &dls.artifact {
+                if !art.url.is_empty() {
+                    let rel = art.path.as_deref().filter(|p| !p.is_empty())
+                        .map(|p| p.to_string()).unwrap_or_else(|| maven_path(&lib.name));
+                    save_if_missing(client, &art.url, &libs_dir.join(&rel)).await?;
+                }
+            }
+            if let Some(cls) = &dls.classifiers {
+                if let Some(dl) = cls.get(native_classifier()) {
+                    if !dl.url.is_empty() {
+                        unzip_natives(&http_bytes(client, &dl.url).await?, &natives_dir)?;
+                    }
+                }
+            }
+        }
+    }
+
+    prog!(50, "Index des assets...");
+    let assets_dir = game_dir.join("assets");
+    std::fs::create_dir_all(assets_dir.join("indexes")).map_err(|e| e.to_string())?;
+    if let Some(ai) = &ver.asset_index {
+        let idx_path = assets_dir.join("indexes").join(format!("{}.json", ai.id));
+        save_if_missing(client, &ai.url, &idx_path).await?;
+        let index: AssetIndex = serde_json::from_str(
+            &std::fs::read_to_string(&idx_path).map_err(|e| e.to_string())?
+        ).map_err(|e| e.to_string())?;
+        let objs: Vec<_> = index.objects.values().collect();
+        for (i, obj) in objs.iter().enumerate() {
+            if i % 100 == 0 {
+                prog!(50 + i * 29 / objs.len().max(1), format!("Assets ({}/{})", i, objs.len()));
+            }
+            let prefix = &obj.hash[..2];
+            save_if_missing(client,
+                &format!("{RESOURCES_URL}{prefix}/{}", obj.hash),
+                &assets_dir.join("objects").join(prefix).join(&obj.hash),
+            ).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn install_fabric(
+    app:      &AppHandle,
+    client:   &reqwest::Client,
+    game_dir: &Path,
+    inst:     &InstanceConfig,
+) -> Result<(), String> {
+    install_vanilla(app, client, game_dir, inst).await?;
+
+    let _ = app.emit("setup:progress", SetupProgress {
+        step: inst.id.clone(), current: 80, total: 100, label: "Profil Fabric...".into(), error: false,
+    });
+
+    let url = format!(
+        "https://meta.fabricmc.net/v2/versions/loader/{}/{}/profile/json",
+        inst.mc_version, inst.loader_version
+    );
+    let raw = http_bytes(client, &url).await?;
+    let profile: VersionJson = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+    let fabric_id  = format!("fabric-loader-{}-{}", inst.loader_version, inst.mc_version);
+    let fabric_dir = game_dir.join("versions").join(&fabric_id);
+    std::fs::create_dir_all(&fabric_dir).map_err(|e| e.to_string())?;
+    std::fs::write(fabric_dir.join(format!("{fabric_id}.json")), &raw)
+        .map_err(|e| e.to_string())?;
+
+    let libs_dir = game_dir.join("libraries");
+    for (i, lib) in profile.libraries.iter().enumerate() {
+        let _ = app.emit("setup:progress", SetupProgress {
+            step: inst.id.clone(),
+            current: 80 + i * 19 / profile.libraries.len().max(1),
+            total: 100,
+            label: format!("Fabric libs ({}/{})", i + 1, profile.libraries.len()),
+            error: false,
+        });
+        let base_raw = lib.url.as_deref().unwrap_or("https://maven.fabricmc.net/");
+        let base = if base_raw.ends_with('/') { base_raw.to_string() } else { format!("{base_raw}/") };
+        let rel  = maven_path(&lib.name);
+        save_if_missing(client, &format!("{base}{rel}"), &libs_dir.join(&rel)).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let cfg          = state.config.clone();
+    std::fs::create_dir_all(&launcher_dir).map_err(|e| e.to_string())?;
+
+    let logs = log_dir(&launcher_dir);
+    launcher_log(&logs, "Démarrage de la configuration initiale");
+
+    // Java
+    if find_bundled_java(&launcher_dir).is_none() {
+        launcher_log(&logs, &format!("Téléchargement Java {}", cfg.java_version));
+        install_java_bundled(&app, &launcher_dir, cfg.java_version).await?;
+        launcher_log(&logs, "Java installé");
+    } else {
+        let _ = app.emit("setup:progress", SetupProgress {
+            step: "java".into(), current: 100, total: 100, label: "Java déjà installé.".into(), error: false,
+        });
+    }
+
+    // Instances
+    let game_dir = shared_game_dir(&launcher_dir);
+    let client   = reqwest::Client::builder().user_agent("HomeLauncher/1.0").build()
+        .map_err(|e| e.to_string())?;
+
+    for inst in &cfg.instances {
+        if is_instance_installed(&launcher_dir, inst) {
+            launcher_log(&logs, &format!("Instance '{}' déjà installée", inst.id));
+            let _ = app.emit("setup:progress", SetupProgress {
+                step: inst.id.clone(), current: 100, total: 100,
+                label: format!("{} déjà installé.", inst.name), error: false,
+            });
+            continue;
+        }
+        launcher_log(&logs, &format!("Installation instance '{}' ({})", inst.id, inst.mc_version));
+        let result = if inst.loader == "fabric" {
+            install_fabric(&app, &client, &game_dir, inst).await
+        } else {
+            install_vanilla(&app, &client, &game_dir, inst).await
+        };
+        match result {
+            Ok(_) => {
+                let _ = app.emit("setup:progress", SetupProgress {
+                    step: inst.id.clone(), current: 100, total: 100,
+                    label: format!("{} installé.", inst.name), error: false,
+                });
+                launcher_log(&logs, &format!("Instance '{}' installée", inst.id));
+            }
+            Err(e) => {
+                launcher_log(&logs, &format!("Erreur instance '{}': {e}", inst.id));
+                let _ = app.emit("setup:progress", SetupProgress {
+                    step: inst.id.clone(), current: 0, total: 100,
+                    label: format!("Erreur : {e}"), error: true,
+                });
+            }
+        }
+    }
+
+    let _ = app.emit("setup:done", ());
+    launcher_log(&logs, "Configuration initiale terminée");
+    Ok(())
+}
+
+// ── Vérification ──────────────────────────────────────────────────────────────
+
+fn read_version_chain(game_dir: &Path, version_id: &str) -> Result<VersionJson, String> {
+    let text = std::fs::read_to_string(
+        game_dir.join("versions").join(version_id).join(format!("{version_id}.json"))
+    ).map_err(|_| format!("Version '{version_id}' non installée"))?;
+    let mut ver: VersionJson = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    if let Some(parent_id) = ver.inherits_from.take() {
+        let parent = read_version_chain(game_dir, &parent_id)?;
+        if ver.main_class.is_empty() { ver.main_class = parent.main_class; }
+        if ver.assets.is_empty()     { ver.assets     = parent.assets; }
+        if ver.asset_index.is_none() { ver.asset_index = parent.asset_index; }
+        if ver.downloads.is_empty()  { ver.downloads   = parent.downloads; }
+        if ver.legacy_args.is_none() { ver.legacy_args = parent.legacy_args; }
+        match (ver.arguments.as_mut(), parent.arguments) {
+            (Some(ca), Some(pa)) => {
+                let mut jvm = pa.jvm; jvm.extend(ca.jvm.drain(..)); ca.jvm = jvm;
+                ca.game.extend(pa.game);
+            }
+            (None, Some(pa)) => ver.arguments = Some(pa),
+            _ => {}
+        }
+        ver.libraries = { let mut m = parent.libraries; m.extend(std::mem::take(&mut ver.libraries)); m };
+    }
+    Ok(ver)
+}
+
+fn verify_instance(launcher_dir: &Path, inst: &InstanceConfig) -> Result<(), String> {
+    if find_bundled_java(launcher_dir).is_none() {
+        return Err("Java non installé — relancez la configuration initiale.".into());
+    }
+    let game_dir = shared_game_dir(launcher_dir);
+    let ver_id   = version_folder(inst);
+    let ver_json = game_dir.join("versions").join(&ver_id).join(format!("{ver_id}.json"));
+    if !ver_json.exists() {
+        return Err(format!("Fichier de version introuvable : {ver_id}.json\nRelancez la configuration initiale."));
+    }
+    let ver      = read_version_chain(&game_dir, &ver_id)?;
+    let libs_dir = game_dir.join("libraries");
+    let mut missing = Vec::new();
+
+    let client_jar = game_dir.join("versions").join(&inst.mc_version)
+        .join(format!("{}.jar", inst.mc_version));
+    if !client_jar.exists() { missing.push(format!("JAR client : {}.jar", inst.mc_version)); }
+
+    for lib in ver.libraries.iter().filter(|l| lib_applies(l)) {
+        let path = if let Some(dls) = &lib.downloads {
+            if let Some(art) = &dls.artifact {
+                let rel = art.path.as_deref().filter(|p| !p.is_empty())
+                    .map(|p| p.to_string()).unwrap_or_else(|| maven_path(&lib.name));
+                libs_dir.join(rel)
+            } else { continue; }
+        } else {
+            libs_dir.join(maven_path(&lib.name))
+        };
+        if !path.exists() { missing.push(format!("lib : {}", lib.name)); }
+    }
+
+    if missing.is_empty() { Ok(()) } else {
+        Err(format!(
+            "{} fichier(s) manquant(s) dans '{}' :\n{}\n\nRelancez la configuration initiale.",
+            missing.len(), inst.name, missing.join("\n")
+        ))
+    }
+}
+
+#[tauri::command]
+fn verify_game(state: State<AppState>, instance_id: String) -> Result<(), String> {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst = state.config.instances.iter().find(|i| i.id == instance_id)
+        .ok_or_else(|| format!("Instance '{instance_id}' introuvable dans config.json"))?;
+    verify_instance(&launcher_dir, inst)
+}
+
+// ── Lancement ─────────────────────────────────────────────────────────────────
+
+fn mc_version_gte(version: &str, major: u32, minor: u32) -> bool {
+    let p: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
+    (p.first().copied().unwrap_or(0), p.get(1).copied().unwrap_or(0)) >= (major, minor)
+}
+
+fn extract_args(args: &[serde_json::Value], vars: &HashMap<&str, String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for arg in args {
+        match arg {
+            serde_json::Value::String(s) => out.push(subst(s, vars)),
+            serde_json::Value::Object(obj) => {
+                let mut allow = true;
+                if let Some(rules) = obj.get("rules").and_then(|r| r.as_array()) {
+                    allow = false;
+                    for rule in rules {
+                        // Les règles "features" (demo, quick-play, custom resolution…) sont ignorées
+                        // car nous n'activons aucune de ces fonctionnalités optionnelles.
+                        if rule.get("features").is_some() { continue; }
+                        let action = rule.get("action").and_then(|a| a.as_str()).unwrap_or("allow");
+                        let os_ok  = rule.get("os").and_then(|o| o.get("name"))
+                            .and_then(|n| n.as_str()).map_or(true, |n| n == os_name());
+                        if os_ok { allow = action == "allow"; }
+                    }
+                }
+                if allow {
+                    match obj.get("value") {
+                        Some(serde_json::Value::Array(vs)) => {
+                            for v in vs { if let serde_json::Value::String(s) = v { out.push(subst(s, vars)); } }
+                        }
+                        Some(serde_json::Value::String(s)) => out.push(subst(s, vars)),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn subst(t: &str, vars: &HashMap<&str, String>) -> String {
+    let mut s = t.to_string();
+    for (k, v) in vars { s = s.replace(&format!("${{{k}}}"), v); }
+    s
+}
+
+#[tauri::command]
+async fn launch_game(
+    app:         AppHandle,
+    state:       State<'_, AppState>,
+    instance_id: String,
+) -> Result<(), String> {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst = state.config.instances.iter().find(|i| i.id == instance_id)
+        .ok_or_else(|| format!("Instance '{instance_id}' introuvable"))?
+        .clone();
+
+    verify_instance(&launcher_dir, &inst)?;
+
+    let java     = find_bundled_java(&launcher_dir).unwrap();
+    let game_dir = shared_game_dir(&launcher_dir);
+    let ver_id   = version_folder(&inst);
+    let ver      = read_version_chain(&game_dir, &ver_id)?;
+
+    let offline_auth = |name: &str| -> (String, String, String, &'static str) {
+        let h = fnv64(name);
+        let uid = format!("{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+            (h >> 32) as u32, (h >> 16) as u16, h as u16 & 0x0fff,
+            0x8000u16 | ((h >> 48) as u16 & 0x3fff), h & 0x0000_ffff_ffff);
+        (name.to_string(), uid, "0".into(), "offline")
+    };
+
+    let fallback_name = if settings.username.is_empty() { "Player".to_string() } else { settings.username.clone() };
+    let (username, uuid, access_token, user_type) = match state.config.session.as_str() {
+        "custom" => {
+            let guard = state.custom_session.lock().unwrap();
+            match &*guard {
+                Some(s) => (s.username.clone(), s.uuid.clone(), s.access_token.clone(), "msa"),
+                None    => offline_auth(&fallback_name),
+            }
+        },
+        _ => offline_auth(&fallback_name),
+    };
+
+    let mc_ver_dir   = game_dir.join("versions").join(&inst.mc_version);
+    let natives_dir  = mc_ver_dir.join("natives");
+    let assets_dir   = game_dir.join("assets");
+    let libs_dir     = game_dir.join("libraries");
+    let inst_dir     = instance_data_dir(&launcher_dir, &inst);
+    std::fs::create_dir_all(&inst_dir).map_err(|e| e.to_string())?;
+    let cp_sep       = if cfg!(windows) { ";" } else { ":" };
+
+    let mut cp: Vec<String> = Vec::new();
+    for lib in ver.libraries.iter().filter(|l| lib_applies(l)) {
+        if let Some(dls) = &lib.downloads {
+            if let Some(art) = &dls.artifact {
+                let rel  = art.path.as_deref().filter(|p| !p.is_empty())
+                    .map(|p| p.to_string()).unwrap_or_else(|| maven_path(&lib.name));
+                let full = libs_dir.join(&rel);
+                if full.exists() { cp.push(full.to_string_lossy().into()); }
+            }
+        } else {
+            let full = libs_dir.join(maven_path(&lib.name));
+            if full.exists() { cp.push(full.to_string_lossy().into()); }
+        }
+    }
+    let client_jar = mc_ver_dir.join(format!("{}.jar", inst.mc_version));
+    if client_jar.exists() { cp.push(client_jar.to_string_lossy().into()); }
+    let classpath = cp.join(cp_sep);
+
+    let vars: HashMap<&str, String> = HashMap::from([
+        ("natives_directory", natives_dir.to_string_lossy().into()),
+        ("launcher_name",     "HomeLauncher".into()),
+        ("launcher_version",  "1.0".into()),
+        ("classpath",         classpath.clone()),
+        ("auth_player_name",  username.clone()),
+        ("version_name",      ver_id.clone()),
+        ("game_directory",    inst_dir.to_string_lossy().into()),
+        ("assets_root",       assets_dir.to_string_lossy().into()),
+        ("assets_index_name", ver.assets.clone()),
+        ("auth_uuid",         uuid.clone()),
+        ("auth_access_token", access_token.clone()),
+        ("user_type",         user_type.into()),
+        ("version_type",      "release".into()),
+        ("resolution_width",  "854".into()),
+        ("resolution_height", "480".into()),
+    ]);
+
+    // Seul arg non fourni par le JSON de version
+    let mut cmd: Vec<String> = vec![format!("-Xmx{}M", settings.max_memory)];
+
+    if let Some(args) = &ver.arguments {
+        cmd.extend(extract_args(&args.jvm, &vars));
+        if !cmd.contains(&"-cp".to_string()) {
+            cmd.push("-cp".into()); cmd.push(classpath);
+        }
+        cmd.push(ver.main_class.clone());
+        cmd.extend(extract_args(&args.game, &vars));
+    } else {
+        cmd.extend([
+            format!("-Djava.library.path={}", natives_dir.display()),
+            "-cp".into(), classpath,
+        ]);
+        cmd.push(ver.main_class.clone());
+        if let Some(legacy) = &ver.legacy_args {
+            cmd.extend(legacy.split_whitespace().map(|p| subst(p, &vars)));
+        }
+    }
+
+    if !inst.server_ip.is_empty() {
+        if mc_version_gte(&inst.mc_version, 1, 20) {
+            // MC 1.20+ : --server/--port ont été remplacés par --quickPlayMultiplayer host:port
+            cmd.push("--quickPlayMultiplayer".into());
+            cmd.push(format!("{}:{}", inst.server_ip, inst.server_port));
+        } else {
+            cmd.push("--server".into());
+            cmd.push(inst.server_ip.clone());
+            cmd.push("--port".into());
+            cmd.push(inst.server_port.to_string());
+        }
+    }
+
+    // Log launcher
+    let logs = log_dir(&launcher_dir);
+    launcher_log(&logs, &format!(
+        "Lancement instance '{}' ({} {}) — Java: {}",
+        inst.id, inst.mc_version, inst.loader, java.display()
+    ));
+
+    let _ = app.emit("game:starting", &instance_id);
+
+    // Log de session (stdout + stderr)
+    let ts       = Local::now().format("%Y%m%d_%H%M%S");
+    let log_path = logs.join(format!("{}-{ts}.log", inst.id));
+    std::fs::create_dir_all(&logs).ok();
+
+    // Log la commande dans la console UI
+    let _ = app.emit("game:output", GameOutput {
+        instance_id: instance_id.clone(),
+        text: format!("[HomeLauncher] Lancement : {} {}", java.display(), cmd.first().unwrap_or(&String::new())),
+        stderr: false,
+    });
+
+    let mut child = std::process::Command::new(&java)
+        .args(&cmd)
+        .current_dir(&inst_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Impossible de lancer Java: {e}"))?;
+
+    let app2     = app.clone();
+    let iid2     = instance_id.clone();
+    let log_path2 = log_path.clone();
+    if let Some(stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            let mut log = std::fs::OpenOptions::new()
+                .create(true).append(true).open(&log_path2).ok();
+            for line in BufReader::new(stdout).lines().flatten() {
+                if let Some(ref mut f) = log { let _ = writeln!(f, "[OUT] {line}"); }
+                let _ = app2.emit("game:output", GameOutput {
+                    instance_id: iid2.clone(), text: line, stderr: false,
+                });
+            }
+        });
+    }
+    let app3  = app.clone();
+    let iid3  = instance_id.clone();
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            let mut log = std::fs::OpenOptions::new()
+                .create(true).append(true).open(&log_path).ok();
+            for line in BufReader::new(stderr).lines().flatten() {
+                if let Some(ref mut f) = log { let _ = writeln!(f, "[ERR] {line}"); }
+                let _ = app3.emit("game:output", GameOutput {
+                    instance_id: iid3.clone(), text: line, stderr: true,
+                });
+            }
+        });
+    }
+    let iid_exit = instance_id.clone();
+    let logs2    = logs.clone();
+    std::thread::spawn(move || {
+        let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1);
+        launcher_log(&logs2, &format!("Instance '{}' terminée (code {code})", iid_exit));
+        let _ = app.emit("game:exit", serde_json::json!({ "instance_id": iid_exit, "code": code }));
+    });
+
+    Ok(())
+}
+
+// ── Mise à jour ───────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn check_update(state: State<'_, AppState>) -> Result<Option<UpdateInfo>, String> {
+    let url = state.config.update_url.trim().to_string();
+    if url.is_empty() { return Ok(None); }
+    let client = reqwest::Client::builder().user_agent("HomeLauncher/1.0").build()
+        .map_err(|e| e.to_string())?;
+    let manifest: UpdateManifest = client.get(&url).send().await
+        .map_err(|e| format!("Erreur réseau updater: {e}"))?
+        .json().await.map_err(|e| format!("Réponse updater invalide: {e}"))?;
+    let current = env!("CARGO_PKG_VERSION");
+    if manifest.version.trim() <= current { return Ok(None); }
+    let dl_url = if cfg!(windows) { &manifest.windows }
+                 else if cfg!(target_os = "macos") { &manifest.macos }
+                 else { &manifest.linux };
+    if dl_url.is_empty() { return Ok(None); }
+    Ok(Some(UpdateInfo { version: manifest.version, url: dl_url.clone(), notes: manifest.notes }))
+}
+
+#[tauri::command]
+async fn do_update(app: AppHandle, url: String) -> Result<(), String> {
+    let client = reqwest::Client::builder().user_agent("HomeLauncher/1.0").build()
+        .map_err(|e| e.to_string())?;
+    let ext  = if cfg!(windows) { ".exe" } else if cfg!(target_os = "macos") { ".dmg" } else { ".AppImage" };
+    let dest = std::env::temp_dir().join(format!("HomeLauncher-update{ext}"));
+    let bytes = client.get(&url).send().await.map_err(|e| e.to_string())?
+        .bytes().await.map_err(|e| e.to_string())?;
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).ok();
+    }
+    std::process::Command::new(&dest).spawn()
+        .map_err(|e| format!("Impossible de lancer la mise à jour: {e}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[tauri::command]
+fn set_custom_session(state: State<'_, AppState>, session: Option<CustomSession>) -> Result<(), String> {
+    *state.custom_session.lock().unwrap() = session;
+    Ok(())
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .setup(|app| {
+            let data_dir = app.path().app_data_dir()
+                .unwrap_or_else(|_| dirs::data_local_dir().unwrap_or_default().join("HomeLauncher"));
+            std::fs::create_dir_all(&data_dir)?;
+            let config:   LauncherConfig = find_config_json(app.handle());
+            let settings: Settings       = load_json(&data_dir.join("settings.json"));
+
+            // Log du démarrage dans le launcher_dir final
+            let launcher_dir = get_launcher_dir(&settings, &config);
+            launcher_log(&log_dir(&launcher_dir),
+                &format!("HomeLauncher démarré — {} instance(s)", config.instances.len()));
+
+            // Appliquer les options de fenêtre depuis config.json
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_title(&config.app_name);
+                let _ = win.set_decorations(config.window_decorations);
+                let _ = win.set_resizable(config.window_resizable);
+            }
+
+            app.manage(AppState { config, settings: Mutex::new(settings), data_dir, custom_session: Mutex::new(None) });
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build()
+                )?;
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_server_config,
+            get_settings, save_settings,
+            get_default_launcher_dir, get_init_status,
+            run_setup, verify_game, launch_game,
+            check_update, do_update,
+            set_custom_session,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
