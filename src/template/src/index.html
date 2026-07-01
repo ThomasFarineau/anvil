@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Launcher</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #0d0d0d;
+        color: #e8e8e8;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+      }
+      .card {
+        background: #111;
+        border: 1px solid #222;
+        border-radius: 12px;
+        padding: 28px 32px;
+        width: 360px;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin-bottom: 4px;
+        color: #4caf50;
+      }
+      p {
+        font-size: 0.8rem;
+        color: #555;
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        font-size: 0.75rem;
+        color: #666;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      input[type='text'] {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: #0a0a0a;
+        border: 1px solid #333;
+        color: #e8e8e8;
+        font-size: 0.9rem;
+        outline: none;
+        margin-bottom: 16px;
+      }
+      input[type='text']:focus {
+        border-color: #4caf50;
+      }
+      .instance-btn {
+        width: 100%;
+        padding: 10px;
+        border-radius: 8px;
+        border: none;
+        background: #1a2e1a;
+        color: #4caf50;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin-bottom: 8px;
+        transition: background 0.15s;
+      }
+      .instance-btn:hover:not(:disabled) {
+        background: #4caf50;
+        color: #fff;
+      }
+      .instance-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .status {
+        font-size: 0.75rem;
+        color: #555;
+        margin-top: 12px;
+        min-height: 1rem;
+      }
+
+      /* ── Setup overlay ─────────────────────────────────────── */
+      #setup-overlay {
+        position: fixed;
+        inset: 0;
+        background: #080808;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #setup-overlay .card {
+        width: 400px;
+      }
+      #setup-overlay h1 {
+        margin-bottom: 20px;
+      }
+      .dir-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      .dir-row input {
+        flex: 1;
+        margin: 0;
+      }
+      .dir-row button {
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #333;
+        background: #111;
+        color: #888;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+      .step {
+        margin-bottom: 10px;
+      }
+      .step-name {
+        font-size: 0.85rem;
+        margin-bottom: 4px;
+      }
+      .bar-track {
+        height: 4px;
+        background: #222;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 4px;
+        background: #4caf50;
+        transition: width 0.2s;
+      }
+      .step-label {
+        font-size: 0.7rem;
+        color: #555;
+        margin-top: 2px;
+      }
+      .install-btn {
+        width: 100%;
+        padding: 10px;
+        border-radius: 8px;
+        border: none;
+        background: #1a2e1a;
+        color: #4caf50;
+        font-weight: 700;
+        font-size: 0.9rem;
+        cursor: pointer;
+        margin-top: 16px;
+        transition: background 0.15s;
+      }
+      .install-btn:hover:not(:disabled) {
+        background: #4caf50;
+        color: #fff;
+      }
+      .install-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ── Setup overlay (shown when not installed) ── -->
+    <div id="setup-overlay" style="display: none">
+      <div class="card">
+        <h1 id="setup-title">Initial setup</h1>
+
+        <label>Install folder</label>
+        <div class="dir-row">
+          <input id="dir-input" type="text" placeholder="C:\Users\..." />
+          <button id="dir-default-btn">Default</button>
+        </div>
+
+        <div id="steps-container"></div>
+
+        <button id="install-btn" class="install-btn">Install</button>
+        <p id="setup-error" class="status" style="color: #ef5350"></p>
+      </div>
+    </div>
+
+    <!-- ── Main launcher ── -->
+    <div id="main-view" style="display: none">
+      <div class="card">
+        <h1 id="server-name">Launcher</h1>
+        <p id="server-sub"></p>
+
+        <label>Username</label>
+        <input
+          id="username-input"
+          type="text"
+          maxlength="16"
+          placeholder="Steve" />
+
+        <div id="instances-container"></div>
+        <p id="game-status" class="status"></p>
+      </div>
+    </div>
+
+    <script type="module">
+      import { MC } from '/api.js';
+
+      // ── Boot ────────────────────────────────────────────────────
+      const [config, settings, initStatus] = await Promise.all([
+        MC.getConfig(),
+        MC.getSettings(),
+        MC.getInitStatus(),
+      ]);
+
+      if (settings.username) {
+        document.getElementById('username-input').value = settings.username;
+      }
+
+      document.title = config.app_name;
+
+      const allInstalled =
+        initStatus.java_ok && initStatus.instances.every((i) => i.installed);
+
+      if (allInstalled) {
+        showMain(config, settings, initStatus);
+      } else {
+        showSetup(config, settings, initStatus);
+      }
+
+      // ── Main page ────────────────────────────────────────────────
+      function showMain(config, settings, initStatus) {
+        document.getElementById('main-view').style.display = 'flex';
+        document.getElementById('server-name').textContent = config.app_name;
+
+        const container = document.getElementById('instances-container');
+        for (const inst of config.instances) {
+          const btn = document.createElement('button');
+          btn.className = 'instance-btn';
+          btn.id = `play-${inst.id}`;
+          btn.textContent = `▶  ${inst.name}`;
+          btn.disabled = true;
+          btn.addEventListener('click', () => onPlay(inst.id));
+          container.appendChild(btn);
+        }
+
+        document
+          .getElementById('username-input')
+          .addEventListener('input', updateButtons);
+        updateButtons();
+
+        MC.on.gameStarting((id) => {
+          document.getElementById(`play-${id}`).textContent = 'EN JEU';
+          document.getElementById(`play-${id}`).disabled = true;
+        });
+        MC.on.gameExit(({ instance_id, code }) => {
+          document.getElementById(`play-${instance_id}`).textContent =
+            `▶  ${config.instances.find((i) => i.id === instance_id)?.name ?? instance_id}`;
+          updateButtons();
+          document.getElementById('game-status').textContent =
+            code === 0 ? 'Session ended.' : `Exited with code ${code}.`;
+        });
+
+        // Check for updates silently
+        MC.checkUpdate()
+          .then((info) => {
+            if (info) {
+              const ok = confirm(
+                `Update ${info.version} available.\n\n${info.notes}\n\nInstall now?`,
+              );
+              if (ok) MC.doUpdate(info.url);
+            }
+          })
+          .catch(() => {});
+      }
+
+      function updateButtons() {
+        const username = document.getElementById('username-input').value.trim();
+        document.querySelectorAll('.instance-btn').forEach((btn) => {
+          if (!btn.textContent.includes('EN JEU')) btn.disabled = !username;
+        });
+      }
+
+      async function onPlay(instanceId) {
+        const username = document.getElementById('username-input').value.trim();
+        if (!username) return;
+        await MC.saveSettings({
+          username,
+          launcher_dir: null,
+          max_memory: 2048,
+        });
+        try {
+          await MC.verify(instanceId);
+          await MC.play(instanceId);
+        } catch (e) {
+          alert(`Error: ${e}`);
+        }
+      }
+
+      // ── Setup page ───────────────────────────────────────────────
+      function showSetup(config, settings, initStatus) {
+        document.getElementById('setup-overlay').style.display = 'flex';
+        document.getElementById('setup-title').textContent =
+          `Setup — ${config.app_name}`;
+        document.getElementById('dir-input').value = initStatus.launcher_dir;
+
+        document
+          .getElementById('dir-default-btn')
+          .addEventListener('click', async () => {
+            document.getElementById('dir-input').value =
+              await MC.getDefaultDir();
+          });
+
+        renderSteps(initStatus, config);
+
+        document
+          .getElementById('install-btn')
+          .addEventListener('click', onInstall);
+
+        // Live progress
+        MC.on.setupProgress(({ step, current, total, label, error }) => {
+          const pct = total > 0 ? Math.round((current * 100) / total) : 0;
+          const fill = document.getElementById(`bar-${step}`);
+          const lbl = document.getElementById(`lbl-${step}`);
+          if (fill) {
+            fill.style.width = `${pct}%`;
+            fill.style.background = error ? '#ef5350' : '#4caf50';
+          }
+          if (lbl) lbl.textContent = label;
+        });
+
+        MC.on.setupDone(async () => {
+          const status = await MC.getInitStatus();
+          if (status.java_ok && status.instances.every((i) => i.installed)) {
+            document.getElementById('setup-overlay').style.display = 'none';
+            showMain(config, settings, status);
+          } else {
+            const btn = document.getElementById('install-btn');
+            btn.textContent = 'Retry';
+            btn.disabled = false;
+          }
+        });
+      }
+
+      function renderSteps(initStatus, config) {
+        const container = document.getElementById('steps-container');
+        const steps = [
+          { id: 'java', name: 'Java JRE', installed: initStatus.java_ok },
+          ...config.instances.map((inst) => ({
+            id: inst.id,
+            name: inst.name,
+            installed:
+              initStatus.instances.find((i) => i.id === inst.id)?.installed ??
+              false,
+          })),
+        ];
+        container.innerHTML = steps
+          .map(
+            (s) => `
+        <div class="step">
+          <div class="step-name" style="color:${s.installed ? '#4caf50' : '#aaa'}">
+            ${s.installed ? '✓' : '○'}  ${s.name}
+          </div>
+          <div class="bar-track"><div class="bar-fill" id="bar-${s.id}" style="width:${s.installed ? 100 : 0}%"></div></div>
+          <div class="step-label" id="lbl-${s.id}">${s.installed ? 'Installed' : ''}</div>
+        </div>
+      `,
+          )
+          .join('');
+      }
+
+      async function onInstall() {
+        const dir = document.getElementById('dir-input').value.trim();
+        if (!dir) {
+          document.getElementById('setup-error').textContent =
+            'Choose an install folder.';
+          return;
+        }
+        const btn = document.getElementById('install-btn');
+        btn.disabled = true;
+        btn.textContent = 'Installing…';
+        document.getElementById('setup-error').textContent = '';
+
+        try {
+          const settings = await MC.getSettings();
+          await MC.saveSettings({ ...settings, launcher_dir: dir });
+          await MC.runSetup();
+        } catch (e) {
+          document.getElementById('setup-error').textContent = `Error: ${e}`;
+          btn.disabled = false;
+          btn.textContent = 'Retry';
+        }
+      }
+    </script>
+  </body>
+</html>
