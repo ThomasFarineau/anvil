@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://anvil.dev/config.schema.json",
+  "title": "Anvil Launcher Config",
+  "description": "Configuration file for an Anvil Minecraft launcher (config.json)",
+  "type": "object",
+  "required": ["instances"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON schema URL for validation",
+      "default": "./node_modules/anvil/src/client/config.schema.json"
+    },
+    "identifier": {
+      "type": "string",
+      "description": "Reverse-domain app identifier (e.g. com.mycompany.mylauncher). Used by Tauri to name the installed bundle.",
+      "default": ""
+    },
+    "target": {
+      "type": "string",
+      "description": "Output directory for compiled executables/installers (relative to project root). Defaults to src-anvil/target/ when empty.",
+      "default": ""
+    },
+    "app_name": {
+      "type": "string",
+      "description": "Native window title",
+      "default": "HomeLauncher"
+    },
+    "data_folder": {
+      "type": "string",
+      "description": "Subfolder name inside %APPDATA% / ~/Library used to store game files",
+      "default": "HomeLauncher"
+    },
+    "java_version": {
+      "type": "integer",
+      "enum": [17, 21],
+      "description": "Java version to download and use",
+      "default": 21
+    },
+    "update_url": {
+      "type": "string",
+      "description": "URL of the update manifest (leave empty to disable auto-update)"
+    },
+    "logo": {
+      "type": "string",
+      "description": "Path (relative to src/) or URL of the branding logo displayed in the UI"
+    },
+    "session": {
+      "type": "string",
+      "enum": ["none", "mojang", "custom"],
+      "description": "Authentication mode. 'none': offline. 'custom': client calls MC.setSession() before launch.",
+      "default": "none"
+    },
+    "window_decorations": {
+      "type": "boolean",
+      "description": "Show native window title bar and borders",
+      "default": true
+    },
+    "window_resizable": {
+      "type": "boolean",
+      "description": "Allow the user to resize the launcher window",
+      "default": false
+    },
+    "instances": {
+      "type": "array",
+      "description": "List of Minecraft instances available in the launcher",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "mc_version"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this instance (used as folder name)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name shown on the play button"
+          },
+          "mc_version": {
+            "type": "string",
+            "description": "Minecraft version (e.g. \"1.21.4\")"
+          },
+          "loader": {
+            "type": "string",
+            "enum": ["", "fabric", "forge", "neoforge", "quilt"],
+            "description": "Mod loader to install alongside Minecraft",
+            "default": ""
+          },
+          "loader_version": {
+            "type": "string",
+            "description": "Mod loader version (e.g. \"0.16.9\" for Fabric)",
+            "default": ""
+          },
+          "server_ip": {
+            "type": "string",
+            "description": "Server IP to auto-connect to on launch",
+            "default": ""
+          },
+          "server_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Server port",
+            "default": 25565
+          }
+        }
+      }
+    }
+  }
+}
