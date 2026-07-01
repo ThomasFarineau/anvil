@@ -1,6 +1,6 @@
 {
   "name": "@thomasfarineau/anvil",
-  "version": "0.0.2",
+  "version": "0.0.1",
   "description": "Zero-config Minecraft launcher framework built on Tauri",
   "keywords": [
     "launcher",
