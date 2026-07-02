@@ -1,0 +1,70 @@
+# Example CI workflow for an anvil launcher.
+#
+# Copy this file into your launcher repository at `.github/workflows/build.yml`.
+# It compiles the launcher on Linux, Windows and macOS and uploads the
+# installers produced by `anvil build` (nsis / appimage / dmg) as artifacts.
+#
+# Assumes your project was created with:
+#   npx @thomasfarineau/anvil create <name> --template <template>
+# so that `npm run build` runs `anvil build` (i.e. `tauri build`).
+
+name: Build launcher
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+            bundle: appimage
+          - os: windows-latest
+            name: windows
+            bundle: nsis
+          - os: macos-latest
+            name: macos
+            bundle: dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # `anvil build` regenerates src-anvil/ (the Rust project) on first run,
+      # so cache the Cargo registry/target across builds once it exists.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-anvil
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build launcher
+        run: npm run build
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-${{ matrix.name }}
+          # Tauri writes installers under the release bundle directory.
+          path: |
+            src-anvil/target/release/bundle/${{ matrix.bundle }}/*
+          if-no-files-found: error

@@ -2,7 +2,7 @@
 .idea/
 node_modules/
 app/
-example/
+examples/
 tests/
 *.iml
 bun.lock

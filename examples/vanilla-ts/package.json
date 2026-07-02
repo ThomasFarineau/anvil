@@ -1,0 +1,16 @@
+{
+  "name": "vanilla-ts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun ../../src/cli/index.ts dev",
+    "build": "bun ../../src/cli/index.ts build",
+    "dev:ui": "vite",
+    "build:ui": "vite build"
+  },
+  "devDependencies": {
+    "typescript": "^6",
+    "vite": "^8"
+  }
+}

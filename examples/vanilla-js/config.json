@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/@thomasfarineau/anvil/src/client/config.schema.json",
+  "identifier": "",
+  "target": "",
+  "app_name": "My Launcher",
+  "data_folder": ".my-launcher",
+  "java_version": 21,
+  "update_url": "",
+  "logo": "logo.svg",
+  "session": "none",
+  "window_decorations": true,
+  "window_resizable": false,
+  "instances": [
+    {
+      "id": "survival",
+      "name": "Survival",
+      "mc_version": "1.21.4"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "$schema": "./node_modules/anvil/src/client/config.schema.json",
+  "$schema": "./node_modules/@thomasfarineau/anvil/src/client/config.schema.json",
   "identifier": "com.example.anvil.example",
   "target": "./dist",
   "app_name": "Anvil Launcher Example",

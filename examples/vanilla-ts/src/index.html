@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Launcher</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <!-- ── Setup overlay (shown when not installed) ── -->
+    <div id="setup-overlay" style="display: none">
+      <div class="card">
+        <h1 id="setup-title">Initial setup</h1>
+
+        <label>Install folder</label>
+        <div class="dir-row">
+          <input id="dir-input" type="text" placeholder="C:\Users\..." />
+          <button id="dir-default-btn">Default</button>
+        </div>
+
+        <div id="steps-container"></div>
+
+        <button id="install-btn" class="install-btn">Install</button>
+        <p id="setup-error" class="status" style="color: #ef5350"></p>
+      </div>
+    </div>
+
+    <!-- ── Main launcher ── -->
+    <div id="main-view" style="display: none">
+      <div class="card">
+        <div class="brand">
+          <img id="logo" src="./logo.svg" alt="" style="display: none" />
+          <h1 id="server-name">Launcher</h1>
+        </div>
+        <p id="server-sub" class="sub"></p>
+
+        <label>Username</label>
+        <input
+          id="username-input"
+          type="text"
+          maxlength="16"
+          placeholder="Steve" />
+
+        <div id="instances-container"></div>
+        <p id="game-status" class="status"></p>
+      </div>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
