@@ -4,7 +4,10 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 
-const CLI = join(import.meta.dir, '../src/cli.cjs');
+// Run the TypeScript CLI source directly with Bun (process.execPath is the
+// Bun binary under `bun test`), so tests always reflect the current source
+// without needing a bundle build first.
+const CLI = join(import.meta.dir, '../src/cli/index.ts');
 const TMP = join(tmpdir(), 'anvil-tests');
 
 mkdirSync(TMP, { recursive: true });
@@ -18,12 +21,23 @@ function makeTmpDir(): string {
   return d;
 }
 
+// Icon generation (sharp + tauri icon) is slow and already covered by the
+// Rust CI job — skip it in unit tests.
+const ENV = { ...process.env, ANVIL_SKIP_ICONS: '1' };
+
 function cli(...args: string[]) {
-  return spawnSync('node', [CLI, ...args], { encoding: 'utf8' });
+  return spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8',
+    env: ENV,
+  });
 }
 
 function cliIn(cwd: string, ...args: string[]) {
-  return spawnSync('node', [CLI, ...args], { cwd, encoding: 'utf8' });
+  return spawnSync(process.execPath, [CLI, ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: ENV,
+  });
 }
 
 // ── create ────────────────────────────────────────────────────────────────────
@@ -151,6 +165,94 @@ describe('create', () => {
     expect(api).toContain('export const MC');
     expect(api).toContain('launch_game');
   });
+
+  test('defaults to vanilla-js template when not a TTY', () => {
+    cli('create', dir);
+    expect(existsSync(join(dir, 'src/index.html'))).toBeTrue();
+    expect(existsSync(join(dir, 'src/style.css'))).toBeTrue();
+    expect(existsSync(join(dir, 'src/logo.svg'))).toBeTrue();
+    expect(existsSync(join(dir, 'vite.config.js'))).toBeFalse();
+    expect(existsSync(join(dir, 'vite.config.ts'))).toBeFalse();
+  });
+
+  test('rejects an unknown template', () => {
+    const r = cli('create', dir, '--template', 'angular-coffee');
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('unknown template');
+  });
+});
+
+// ── create --template ─────────────────────────────────────────────────────────
+
+describe('create --template', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = makeTmpDir();
+    rmSync(dir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('react-ts generates a Vite + TypeScript project', () => {
+    const r = cli('create', dir, '--template', 'react-ts');
+    expect(r.status).toBe(0);
+
+    for (const f of [
+      'vite.config.ts',
+      'tsconfig.json',
+      'src/App.tsx',
+      'src/main.tsx',
+      'src/api.js',
+      'src/api.d.ts',
+      'src/style.css',
+    ]) {
+      expect(existsSync(join(dir, f))).toBeTrue();
+    }
+
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    expect(pkg.dependencies?.react).toBeDefined();
+    expect(pkg.devDependencies?.vite).toBeDefined();
+    expect(pkg.devDependencies?.typescript).toBeDefined();
+    expect(pkg.scripts?.['dev:ui']).toBe('vite');
+
+    const conf = JSON.parse(
+      readFileSync(join(dir, 'src-anvil/tauri.conf.json'), 'utf8'),
+    );
+    expect(conf.build?.devUrl).toBe('http://localhost:5173');
+    expect(conf.build?.frontendDist).toBe('../dist');
+    expect(conf.build?.beforeDevCommand).toBe('npm run dev:ui');
+  });
+
+  test('vue-js generates an App.vue project', () => {
+    const r = cli('create', dir, '--template', 'vue-js');
+    expect(r.status).toBe(0);
+    expect(existsSync(join(dir, 'src/App.vue'))).toBeTrue();
+    expect(existsSync(join(dir, 'src/api.d.ts'))).toBeFalse();
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    expect(pkg.dependencies?.vue).toBeDefined();
+  });
+
+  test('solid-ts generates a Solid TypeScript project', () => {
+    const r = cli('create', dir, '--template', 'solid-ts');
+    expect(r.status).toBe(0);
+    expect(existsSync(join(dir, 'src/App.tsx'))).toBeTrue();
+    const tsconfig = JSON.parse(
+      readFileSync(join(dir, 'tsconfig.json'), 'utf8'),
+    );
+    expect(tsconfig.compilerOptions?.jsxImportSource).toBe('solid-js');
+  });
+
+  test('vanilla-js keeps the static frontendDist (no Vite)', () => {
+    cli('create', dir, '--template', 'vanilla-js');
+    const conf = JSON.parse(
+      readFileSync(join(dir, 'src-anvil/tauri.conf.json'), 'utf8'),
+    );
+    expect(conf.build?.frontendDist).toBe('../src');
+    expect(conf.build?.devUrl).toBeUndefined();
+  });
 });
 
 // ── init ──────────────────────────────────────────────────────────────────────
@@ -273,7 +375,7 @@ describe('update', () => {
   });
 
   test('fails with exit 1 outside a anvil project', () => {
-    const r = spawnSync('node', [CLI, 'update'], {
+    const r = spawnSync(process.execPath, [CLI, 'update'], {
       cwd: tmpdir(),
       encoding: 'utf8',
     });

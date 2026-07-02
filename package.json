@@ -9,25 +9,34 @@
   ],
   "license": "MIT",
   "bin": {
-    "anvil": "src/cli.cjs",
-    "create-anvil": "src/cli.cjs"
+    "anvil": "dist/cli.cjs",
+    "create-anvil": "dist/cli.cjs"
   },
   "files": [
-    "src/"
+    "dist/",
+    "src/template/",
+    "src/rust/",
+    "src/client/"
   ],
   "type": "module",
   "scripts": {
+    "build": "bun build ./src/cli/index.ts --target node --format cjs --packages external --outfile dist/cli.cjs",
+    "prepack": "bun run build",
     "test": "bun test",
     "lint": "oxlint .",
     "format": "oxfmt .",
-    "check": "bun run lint && bun run format"
+    "format:check": "oxfmt --check .",
+    "check": "bun run build && bun run lint && bun run format:check && bun test"
   },
   "dependencies": {
+    "@clack/prompts": "^1.6.0",
     "@tauri-apps/cli": "^2",
+    "commander": "^15.0.0",
     "sharp": "^0.33.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
+    "bun": "^1.3.14",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0"
   },
