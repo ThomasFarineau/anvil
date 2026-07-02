@@ -1,0 +1,226 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background: #0d0d0d;
+  color: #e8e8e8;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+.card {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+  padding: 28px 32px;
+  width: 380px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.brand img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+}
+h1 {
+  font-size: 1.4rem;
+  color: #4caf50;
+}
+p.sub {
+  font-size: 0.8rem;
+  color: #555;
+  margin-bottom: 20px;
+}
+label {
+  display: block;
+  font-size: 0.75rem;
+  color: #666;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+input[type='text'] {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #0a0a0a;
+  border: 1px solid #333;
+  color: #e8e8e8;
+  font-size: 0.9rem;
+  outline: none;
+  margin-bottom: 16px;
+}
+input[type='text']:focus {
+  border-color: #4caf50;
+}
+.instance-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: #1a2e1a;
+  color: #4caf50;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: background 0.15s;
+}
+.instance-btn:hover:not(:disabled) {
+  background: #4caf50;
+  color: #fff;
+}
+.instance-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.instance-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.instance-row .instance-btn {
+  flex: 1;
+}
+.icon-btn {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #111;
+  color: #888;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.icon-btn:hover {
+  border-color: #4caf50;
+  color: #4caf50;
+}
+.status {
+  font-size: 0.75rem;
+  color: #555;
+  margin-top: 12px;
+  min-height: 1rem;
+}
+
+/* ── Mods panel ─────────────────────────────────────────── */
+.mods-panel {
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.mods-panel .mod-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  padding: 4px 0;
+  color: #aaa;
+}
+.mods-panel .mod-row .mod-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mods-panel .mod-row.disabled .mod-name {
+  color: #555;
+  text-decoration: line-through;
+}
+.mods-empty {
+  font-size: 0.75rem;
+  color: #555;
+}
+
+/* ── Setup overlay ─────────────────────────────────────── */
+#setup-overlay {
+  position: fixed;
+  inset: 0;
+  background: #080808;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#setup-overlay .card {
+  width: 400px;
+}
+#setup-overlay h1 {
+  margin-bottom: 20px;
+}
+.dir-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.dir-row input {
+  flex: 1;
+  margin: 0;
+}
+.dir-row button {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #333;
+  background: #111;
+  color: #888;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.step {
+  margin-bottom: 10px;
+}
+.step-name {
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+.bar-track {
+  height: 4px;
+  background: #222;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 4px;
+  background: #4caf50;
+  transition: width 0.2s;
+}
+.step-label {
+  font-size: 0.7rem;
+  color: #555;
+  margin-top: 2px;
+}
+.install-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: #1a2e1a;
+  color: #4caf50;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-top: 16px;
+  transition: background 0.15s;
+}
+.install-btn:hover:not(:disabled) {
+  background: #4caf50;
+  color: #fff;
+}
+.install-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

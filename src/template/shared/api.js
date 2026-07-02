@@ -1,4 +1,4 @@
-// tauri-mc-launcher client API
+// anvil client API — JS ↔ Rust bridge.
 // Requires withGlobalTauri: true in tauri.conf.json (set by default).
 // Import this file as an ES module: import { MC } from '/api.js';
 
@@ -12,6 +12,7 @@ export const MC = {
   getSettings: () => _invoke('get_settings'),
   saveSettings: (settings) => _invoke('save_settings', { settings }),
   getDefaultDir: () => _invoke('get_default_launcher_dir'),
+  getVersion: () => _invoke('get_launcher_version'),
 
   // ── Init / install ─────────────────────────────────────────
   getInitStatus: () => _invoke('get_init_status'),
@@ -20,6 +21,28 @@ export const MC = {
   // ── Game ───────────────────────────────────────────────────
   verify: (instanceId) => _invoke('verify_game', { instanceId }),
   play: (instanceId) => _invoke('launch_game', { instanceId }),
+  stop: (instanceId) => _invoke('stop_game', { instanceId }),
+  getRunning: () => _invoke('get_running_instances'),
+  isRunning: (instanceId) =>
+    _invoke('get_running_instances').then((ids) => ids.includes(instanceId)),
+
+  // ── Mods (per instance) ────────────────────────────────────
+  mods: {
+    list: (instanceId) => _invoke('get_mods', { instanceId }),
+    add: (instanceId, url, fileName = null) =>
+      _invoke('add_mod', { instanceId, url, fileName }),
+    remove: (instanceId, fileName) =>
+      _invoke('remove_mod', { instanceId, fileName }),
+    enable: (instanceId, fileName) =>
+      _invoke('set_mod_enabled', { instanceId, fileName, enabled: true }),
+    disable: (instanceId, fileName) =>
+      _invoke('set_mod_enabled', { instanceId, fileName, enabled: false }),
+    openFolder: (instanceId) => _invoke('open_mods_folder', { instanceId }),
+  },
+
+  // ── Folders ────────────────────────────────────────────────
+  openInstanceFolder: (instanceId) =>
+    _invoke('open_instance_folder', { instanceId }),
 
   // ── Updater ────────────────────────────────────────────────
   checkUpdate: () => _invoke('check_update'),
@@ -31,6 +54,9 @@ export const MC = {
 
   // ── Window ─────────────────────────────────────────────────
   close: () => _window.getCurrentWindow().close(),
+  minimize: () => _window.getCurrentWindow().minimize(),
+  toggleMaximize: () => _window.getCurrentWindow().toggleMaximize(),
+  startDrag: () => _window.getCurrentWindow().startDragging(),
 
   // ── Events ─────────────────────────────────────────────────
   on: {

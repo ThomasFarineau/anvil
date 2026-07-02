@@ -1,3 +1,4 @@
 node_modules/
+dist/
 src-anvil/target/
 src-anvil/gen/

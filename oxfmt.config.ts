@@ -12,8 +12,8 @@ export default defineConfig({
   insertFinalNewline: true,
   ignorePatterns: [
     '**/node_modules/**',
+    'dist/**',
     'src/rust/**',
-    'src/template/**',
-    'example/**',
+    'examples/**',
   ],
 });

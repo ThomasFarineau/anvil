@@ -4,170 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Launcher</title>
-    <style>
-      * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-      }
-      body {
-        font-family:
-          system-ui,
-          -apple-system,
-          sans-serif;
-        background: #0d0d0d;
-        color: #e8e8e8;
-        height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        user-select: none;
-      }
-      .card {
-        background: #111;
-        border: 1px solid #222;
-        border-radius: 12px;
-        padding: 28px 32px;
-        width: 360px;
-      }
-      h1 {
-        font-size: 1.4rem;
-        margin-bottom: 4px;
-        color: #4caf50;
-      }
-      p {
-        font-size: 0.8rem;
-        color: #555;
-        margin-bottom: 20px;
-      }
-      label {
-        display: block;
-        font-size: 0.75rem;
-        color: #666;
-        margin-bottom: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-      input[type='text'] {
-        width: 100%;
-        padding: 8px 12px;
-        border-radius: 6px;
-        background: #0a0a0a;
-        border: 1px solid #333;
-        color: #e8e8e8;
-        font-size: 0.9rem;
-        outline: none;
-        margin-bottom: 16px;
-      }
-      input[type='text']:focus {
-        border-color: #4caf50;
-      }
-      .instance-btn {
-        width: 100%;
-        padding: 10px;
-        border-radius: 8px;
-        border: none;
-        background: #1a2e1a;
-        color: #4caf50;
-        font-size: 0.9rem;
-        font-weight: 600;
-        cursor: pointer;
-        margin-bottom: 8px;
-        transition: background 0.15s;
-      }
-      .instance-btn:hover:not(:disabled) {
-        background: #4caf50;
-        color: #fff;
-      }
-      .instance-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-      .status {
-        font-size: 0.75rem;
-        color: #555;
-        margin-top: 12px;
-        min-height: 1rem;
-      }
-
-      /* ── Setup overlay ─────────────────────────────────────── */
-      #setup-overlay {
-        position: fixed;
-        inset: 0;
-        background: #080808;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      #setup-overlay .card {
-        width: 400px;
-      }
-      #setup-overlay h1 {
-        margin-bottom: 20px;
-      }
-      .dir-row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 16px;
-      }
-      .dir-row input {
-        flex: 1;
-        margin: 0;
-      }
-      .dir-row button {
-        padding: 8px 12px;
-        border-radius: 6px;
-        border: 1px solid #333;
-        background: #111;
-        color: #888;
-        font-size: 0.8rem;
-        cursor: pointer;
-      }
-      .step {
-        margin-bottom: 10px;
-      }
-      .step-name {
-        font-size: 0.85rem;
-        margin-bottom: 4px;
-      }
-      .bar-track {
-        height: 4px;
-        background: #222;
-        border-radius: 2px;
-        overflow: hidden;
-      }
-      .bar-fill {
-        height: 4px;
-        background: #4caf50;
-        transition: width 0.2s;
-      }
-      .step-label {
-        font-size: 0.7rem;
-        color: #555;
-        margin-top: 2px;
-      }
-      .install-btn {
-        width: 100%;
-        padding: 10px;
-        border-radius: 8px;
-        border: none;
-        background: #1a2e1a;
-        color: #4caf50;
-        font-weight: 700;
-        font-size: 0.9rem;
-        cursor: pointer;
-        margin-top: 16px;
-        transition: background 0.15s;
-      }
-      .install-btn:hover:not(:disabled) {
-        background: #4caf50;
-        color: #fff;
-      }
-      .install-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-    </style>
+    <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <!-- ── Setup overlay (shown when not installed) ── -->
@@ -191,8 +28,11 @@
     <!-- ── Main launcher ── -->
     <div id="main-view" style="display: none">
       <div class="card">
-        <h1 id="server-name">Launcher</h1>
-        <p id="server-sub"></p>
+        <div class="brand">
+          <img id="logo" src="./logo.svg" alt="" style="display: none" />
+          <h1 id="server-name">Launcher</h1>
+        </div>
+        <p id="server-sub" class="sub"></p>
 
         <label>Username</label>
         <input
@@ -207,7 +47,7 @@
     </div>
 
     <script type="module">
-      import { MC } from '/api.js';
+      import { MC } from './api.js';
 
       // ── Boot ────────────────────────────────────────────────────
       const [config, settings, initStatus] = await Promise.all([
@@ -236,15 +76,39 @@
         document.getElementById('main-view').style.display = 'flex';
         document.getElementById('server-name').textContent = config.app_name;
 
+        if (config.logo) {
+          const logo = document.getElementById('logo');
+          logo.src = `./${config.logo}`;
+          logo.style.display = 'block';
+        }
+
         const container = document.getElementById('instances-container');
         for (const inst of config.instances) {
+          const row = document.createElement('div');
+          row.className = 'instance-row';
+
           const btn = document.createElement('button');
           btn.className = 'instance-btn';
           btn.id = `play-${inst.id}`;
           btn.textContent = `▶  ${inst.name}`;
           btn.disabled = true;
           btn.addEventListener('click', () => onPlay(inst.id));
-          container.appendChild(btn);
+          row.appendChild(btn);
+
+          const modsBtn = document.createElement('button');
+          modsBtn.className = 'icon-btn';
+          modsBtn.title = 'Mods';
+          modsBtn.textContent = '🧩';
+          modsBtn.addEventListener('click', () => toggleModsPanel(inst.id));
+          row.appendChild(modsBtn);
+
+          container.appendChild(row);
+
+          const panel = document.createElement('div');
+          panel.className = 'mods-panel';
+          panel.id = `mods-${inst.id}`;
+          panel.style.display = 'none';
+          container.appendChild(panel);
         }
 
         document
@@ -253,12 +117,15 @@
         updateButtons();
 
         MC.on.gameStarting((id) => {
-          document.getElementById(`play-${id}`).textContent = 'EN JEU';
-          document.getElementById(`play-${id}`).disabled = true;
+          const btn = document.getElementById(`play-${id}`);
+          btn.textContent = '■  Stop';
+          btn.disabled = false;
+          btn.dataset.running = '1';
         });
         MC.on.gameExit(({ instance_id, code }) => {
-          document.getElementById(`play-${instance_id}`).textContent =
-            `▶  ${config.instances.find((i) => i.id === instance_id)?.name ?? instance_id}`;
+          const btn = document.getElementById(`play-${instance_id}`);
+          btn.textContent = `▶  ${config.instances.find((i) => i.id === instance_id)?.name ?? instance_id}`;
+          delete btn.dataset.running;
           updateButtons();
           document.getElementById('game-status').textContent =
             code === 0 ? 'Session ended.' : `Exited with code ${code}.`;
@@ -280,24 +147,89 @@
       function updateButtons() {
         const username = document.getElementById('username-input').value.trim();
         document.querySelectorAll('.instance-btn').forEach((btn) => {
-          if (!btn.textContent.includes('EN JEU')) btn.disabled = !username;
+          if (!btn.dataset.running) btn.disabled = !username;
         });
       }
 
       async function onPlay(instanceId) {
+        const btn = document.getElementById(`play-${instanceId}`);
+        if (btn.dataset.running) {
+          await MC.stop(instanceId).catch(() => {});
+          return;
+        }
         const username = document.getElementById('username-input').value.trim();
         if (!username) return;
-        await MC.saveSettings({
-          username,
-          launcher_dir: null,
-          max_memory: 2048,
-        });
+        const settings = await MC.getSettings();
+        await MC.saveSettings({ ...settings, username });
         try {
           await MC.verify(instanceId);
           await MC.play(instanceId);
         } catch (e) {
           alert(`Error: ${e}`);
         }
+      }
+
+      // ── Mods panel ───────────────────────────────────────────────
+      async function toggleModsPanel(instanceId) {
+        const panel = document.getElementById(`mods-${instanceId}`);
+        if (panel.style.display !== 'none') {
+          panel.style.display = 'none';
+          return;
+        }
+        await renderMods(instanceId);
+        panel.style.display = 'block';
+      }
+
+      async function renderMods(instanceId) {
+        const panel = document.getElementById(`mods-${instanceId}`);
+        const mods = await MC.mods.list(instanceId).catch(() => []);
+        panel.innerHTML = '';
+
+        if (mods.length === 0) {
+          panel.innerHTML = '<p class="mods-empty">No mods installed.</p>';
+        }
+        for (const mod of mods) {
+          const row = document.createElement('div');
+          row.className = mod.enabled ? 'mod-row' : 'mod-row disabled';
+
+          const check = document.createElement('input');
+          check.type = 'checkbox';
+          check.checked = mod.enabled;
+          check.addEventListener('change', async () => {
+            const action = check.checked ? MC.mods.enable : MC.mods.disable;
+            await action(instanceId, mod.file_name).catch(() => {});
+            renderMods(instanceId);
+          });
+          row.appendChild(check);
+
+          const name = document.createElement('span');
+          name.className = 'mod-name';
+          name.title = mod.file_name;
+          name.textContent = mod.name;
+          row.appendChild(name);
+
+          if (!mod.managed) {
+            const del = document.createElement('button');
+            del.className = 'icon-btn';
+            del.style.padding = '2px 6px';
+            del.style.margin = '0';
+            del.textContent = '✕';
+            del.title = 'Remove';
+            del.addEventListener('click', async () => {
+              await MC.mods.remove(instanceId, mod.file_name).catch(() => {});
+              renderMods(instanceId);
+            });
+            row.appendChild(del);
+          }
+          panel.appendChild(row);
+        }
+
+        const open = document.createElement('button');
+        open.className = 'icon-btn';
+        open.style.marginTop = '6px';
+        open.textContent = 'Open mods folder';
+        open.addEventListener('click', () => MC.mods.openFolder(instanceId));
+        panel.appendChild(open);
       }
 
       // ── Setup page ───────────────────────────────────────────────
