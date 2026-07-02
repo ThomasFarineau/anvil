@@ -29,5 +29,7 @@ export default defineConfig({
     'src/rust/**',
     'examples/**',
     '**/*.vue',
+    'docs/.vitepress/cache/**',
+    'docs/.vitepress/dist/**',
   ],
 });

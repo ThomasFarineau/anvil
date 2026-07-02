@@ -4,6 +4,7 @@ node_modules/
 app/
 examples/
 tests/
+docs/
 *.iml
 bun.lock
 oxlint.config.ts

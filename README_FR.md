@@ -22,6 +22,8 @@
 
 Vous ne touchez qu'au **frontend**.
 
+📖 Documentation complète : **[thomasfarineau.github.io/anvil/fr](https://thomasfarineau.github.io/anvil/fr/)**
+
 ## Prérequis
 
 - [Node.js](https://nodejs.org) ≥ 18

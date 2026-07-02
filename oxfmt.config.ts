@@ -15,5 +15,7 @@ export default defineConfig({
     'dist/**',
     'src/rust/**',
     'examples/**',
+    'docs/.vitepress/cache/**',
+    'docs/.vitepress/dist/**',
   ],
 });
