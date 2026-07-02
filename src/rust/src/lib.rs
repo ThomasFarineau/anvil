@@ -16,6 +16,13 @@ const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
 // ── Config (config.json) ──────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ModConfig {
+    pub url: String,
+    #[serde(default)] pub name:      String,
+    #[serde(default)] pub file_name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceConfig {
     pub id:             String,
     pub name:           String,
@@ -24,6 +31,7 @@ pub struct InstanceConfig {
     #[serde(default)] pub loader_version: String,
     #[serde(default)] pub server_ip:      String,
     #[serde(default = "default_port")] pub server_port: u16,
+    #[serde(default)] pub mods:           Vec<ModConfig>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -97,6 +105,7 @@ pub struct AppState {
     pub settings:       Mutex<Settings>,
     pub data_dir:       PathBuf,
     pub custom_session: Mutex<Option<CustomSession>>,
+    pub running:        Mutex<HashMap<String, std::sync::Arc<Mutex<std::process::Child>>>>,
 }
 
 // ── Types Mojang (internes) ───────────────────────────────────────────────────
@@ -193,6 +202,16 @@ pub struct InstanceStatus {
     pub id:        String,
     pub name:      String,
     pub installed: bool,
+    pub running:   bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ModInfo {
+    pub file_name: String,
+    pub name:      String,
+    pub enabled:   bool,
+    pub size:      u64,
+    pub managed:   bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -240,6 +259,35 @@ fn instance_data_dir(launcher_dir: &Path, instance: &InstanceConfig) -> PathBuf 
 }
 
 fn log_dir(launcher_dir: &Path) -> PathBuf { launcher_dir.join("logs") }
+
+/// Dossier mods/ de l'instance (lu par Fabric/Forge/Quilt depuis le game dir)
+fn mods_dir(launcher_dir: &Path, inst: &InstanceConfig) -> PathBuf {
+    instance_data_dir(launcher_dir, inst).join("mods")
+}
+
+fn mod_file_name(m: &ModConfig) -> String {
+    if !m.file_name.is_empty() { return m.file_name.clone(); }
+    let base = m.url.split(['?', '#']).next().unwrap_or(&m.url);
+    let name = base.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("mod.jar");
+    if name.ends_with(".jar") { name.to_string() } else { format!("{name}.jar") }
+}
+
+fn check_file_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err(format!("Nom de fichier invalide : '{name}'"));
+    }
+    Ok(())
+}
+
+fn open_in_file_manager(path: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+    let cmd = if cfg!(windows) { "explorer" }
+              else if cfg!(target_os = "macos") { "open" }
+              else { "xdg-open" };
+    std::process::Command::new(cmd).arg(path).spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Impossible d'ouvrir le dossier : {e}"))
+}
 
 fn find_bundled_java(launcher_dir: &Path) -> Option<PathBuf> {
     let java_dir = launcher_dir.join("java");
@@ -341,6 +389,37 @@ fn maven_path(name: &str) -> String {
     format!("{}/{}/{}/{}-{}.jar", p[0].replace('.', "/"), p[1], p[2], p[1], p[2])
 }
 
+/// Maven coordinate without its version: "group:artifact[:classifier]".
+/// Used to dedupe libraries so a single ASM/Guava/etc. survives on the
+/// classpath — Fabric aborts if two versions of the same jar are present.
+fn lib_key(name: &str) -> String {
+    let p: Vec<&str> = name.split(':').collect();
+    if p.len() < 3 { return name.to_string(); }
+    // Keep group:artifact plus any classifier (index 3+), drop the version.
+    let mut key = format!("{}:{}", p[0], p[1]);
+    for extra in &p[3..] { key.push(':'); key.push_str(extra); }
+    key
+}
+
+/// Collapse a merged (vanilla + loader) library list so each coordinate
+/// appears once. The later entry wins — loader libraries follow the parent's
+/// in the merge, so Fabric's versions override vanilla's.
+fn dedup_libraries(libs: Vec<LibEntry>) -> Vec<LibEntry> {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut out: Vec<LibEntry> = Vec::new();
+    for lib in libs {
+        let key = lib_key(&lib.name);
+        match seen.get(&key) {
+            Some(&i) => out[i] = lib,
+            None => {
+                seen.insert(key, out.len());
+                out.push(lib);
+            }
+        }
+    }
+    out
+}
+
 async fn http_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
     client.get(url).send().await.map_err(|e| format!("GET {url}: {e}"))?
         .bytes().await.map_err(|e| e.to_string()).map(|b| b.to_vec())
@@ -422,10 +501,12 @@ fn get_default_launcher_dir(state: State<AppState>) -> String {
 fn get_init_status(state: State<AppState>) -> InitStatus {
     let settings     = state.settings.lock().unwrap().clone();
     let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let running      = state.running.lock().unwrap();
     let instances    = state.config.instances.iter().map(|inst| InstanceStatus {
         id:        inst.id.clone(),
         name:      inst.name.clone(),
         installed: is_instance_installed(&launcher_dir, inst),
+        running:   running.contains_key(&inst.id),
     }).collect();
     InitStatus {
         launcher_dir: launcher_dir.to_string_lossy().into(),
@@ -641,6 +722,166 @@ async fn install_fabric(
     Ok(())
 }
 
+// ── Mods ──────────────────────────────────────────────────────────────────────
+
+/// Télécharge les mods déclarés dans config.json qui manquent dans mods/.
+/// Un mod désactivé (.jar.disabled) n'est pas re-téléchargé.
+async fn sync_mods(
+    app:          &AppHandle,
+    client:       &reqwest::Client,
+    launcher_dir: &Path,
+    inst:         &InstanceConfig,
+) -> Result<(), String> {
+    if inst.mods.is_empty() { return Ok(()); }
+    let dir = mods_dir(launcher_dir, inst);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let total = inst.mods.len();
+    for (i, m) in inst.mods.iter().enumerate() {
+        let file = mod_file_name(m);
+        check_file_name(&file)?;
+        if dir.join(&file).exists() || dir.join(format!("{file}.disabled")).exists() { continue; }
+        let label = if m.name.is_empty() { file.clone() } else { m.name.clone() };
+        let _ = app.emit("setup:progress", SetupProgress {
+            step:    inst.id.clone(),
+            current: 100 * i / total.max(1),
+            total:   100,
+            label:   format!("Mod {label} ({}/{total})", i + 1),
+            error:   false,
+        });
+        save_if_missing(client, &m.url, &dir.join(&file)).await
+            .map_err(|e| format!("Mod '{label}': {e}"))?;
+    }
+    Ok(())
+}
+
+fn find_instance<'a>(cfg: &'a LauncherConfig, instance_id: &str) -> Result<&'a InstanceConfig, String> {
+    cfg.instances.iter().find(|i| i.id == instance_id)
+        .ok_or_else(|| format!("Instance '{instance_id}' introuvable dans config.json"))
+}
+
+#[tauri::command]
+fn get_mods(state: State<AppState>, instance_id: String) -> Result<Vec<ModInfo>, String> {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst         = find_instance(&state.config, &instance_id)?;
+    let dir          = mods_dir(&launcher_dir, inst);
+
+    let managed: HashMap<String, &ModConfig> = inst.mods.iter()
+        .map(|m| (mod_file_name(m), m)).collect();
+
+    let mut mods = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let raw = e.file_name().to_string_lossy().to_string();
+            let (file, enabled) = match raw.strip_suffix(".disabled") {
+                Some(base) => (base.to_string(), false),
+                None       => (raw.clone(), true),
+            };
+            if !file.ends_with(".jar") { continue; }
+            let decl = managed.get(&file);
+            mods.push(ModInfo {
+                name:      decl.map(|m| m.name.clone()).filter(|n| !n.is_empty())
+                               .unwrap_or_else(|| file.trim_end_matches(".jar").to_string()),
+                file_name: file,
+                enabled,
+                size:      e.metadata().map(|m| m.len()).unwrap_or(0),
+                managed:   decl.is_some(),
+            });
+        }
+    }
+    mods.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+    Ok(mods)
+}
+
+#[tauri::command]
+async fn add_mod(
+    state:       State<'_, AppState>,
+    instance_id: String,
+    url:         String,
+    file_name:   Option<String>,
+) -> Result<ModInfo, String> {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst         = find_instance(&state.config, &instance_id)?;
+
+    let m    = ModConfig { url, name: String::new(), file_name: file_name.unwrap_or_default() };
+    let file = mod_file_name(&m);
+    check_file_name(&file)?;
+
+    let dir = mods_dir(&launcher_dir, inst);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dir.join(&file);
+    if dest.exists() { return Err(format!("Le mod '{file}' existe déjà.")); }
+
+    let client = reqwest::Client::builder().user_agent("HomeLauncher/1.0").build()
+        .map_err(|e| e.to_string())?;
+    let bytes = http_bytes(&client, &m.url).await?;
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+
+    Ok(ModInfo {
+        name:      file.trim_end_matches(".jar").to_string(),
+        file_name: file,
+        enabled:   true,
+        size:      bytes.len() as u64,
+        managed:   false,
+    })
+}
+
+#[tauri::command]
+fn remove_mod(state: State<AppState>, instance_id: String, file_name: String) -> Result<(), String> {
+    check_file_name(&file_name)?;
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst         = find_instance(&state.config, &instance_id)?;
+    let dir          = mods_dir(&launcher_dir, inst);
+    for candidate in [dir.join(&file_name), dir.join(format!("{file_name}.disabled"))] {
+        if candidate.exists() {
+            return std::fs::remove_file(&candidate).map_err(|e| e.to_string());
+        }
+    }
+    Err(format!("Mod '{file_name}' introuvable."))
+}
+
+#[tauri::command]
+fn set_mod_enabled(
+    state:       State<AppState>,
+    instance_id: String,
+    file_name:   String,
+    enabled:     bool,
+) -> Result<(), String> {
+    check_file_name(&file_name)?;
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst         = find_instance(&state.config, &instance_id)?;
+    let dir          = mods_dir(&launcher_dir, inst);
+    let active       = dir.join(&file_name);
+    let disabled     = dir.join(format!("{file_name}.disabled"));
+    match (enabled, active.exists(), disabled.exists()) {
+        (true,  true,  _)     => Ok(()),
+        (true,  false, true)  => std::fs::rename(&disabled, &active).map_err(|e| e.to_string()),
+        (false, true,  _)     => std::fs::rename(&active, &disabled).map_err(|e| e.to_string()),
+        (false, false, true)  => Ok(()),
+        _ => Err(format!("Mod '{file_name}' introuvable.")),
+    }
+}
+
+#[tauri::command]
+fn open_mods_folder(state: State<AppState>, instance_id: String) -> Result<(), String> {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst         = find_instance(&state.config, &instance_id)?;
+    open_in_file_manager(&mods_dir(&launcher_dir, inst))
+}
+
+#[tauri::command]
+fn open_instance_folder(state: State<AppState>, instance_id: String) -> Result<(), String> {
+    let settings     = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    let inst         = find_instance(&state.config, &instance_id)?;
+    open_in_file_manager(&instance_data_dir(&launcher_dir, inst))
+}
+
 #[tauri::command]
 async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let settings     = state.settings.lock().unwrap().clone();
@@ -668,19 +909,22 @@ async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
         .map_err(|e| e.to_string())?;
 
     for inst in &cfg.instances {
-        if is_instance_installed(&launcher_dir, inst) {
+        let result = if is_instance_installed(&launcher_dir, inst) {
             launcher_log(&logs, &format!("Instance '{}' déjà installée", inst.id));
-            let _ = app.emit("setup:progress", SetupProgress {
-                step: inst.id.clone(), current: 100, total: 100,
-                label: format!("{} déjà installé.", inst.name), error: false,
-            });
-            continue;
-        }
-        launcher_log(&logs, &format!("Installation instance '{}' ({})", inst.id, inst.mc_version));
-        let result = if inst.loader == "fabric" {
-            install_fabric(&app, &client, &game_dir, inst).await
+            // On synchronise quand même les mods : un ajout dans config.json
+            // doit être téléchargé sans réinstaller l'instance.
+            sync_mods(&app, &client, &launcher_dir, inst).await
         } else {
-            install_vanilla(&app, &client, &game_dir, inst).await
+            launcher_log(&logs, &format!("Installation instance '{}' ({})", inst.id, inst.mc_version));
+            let r = if inst.loader == "fabric" {
+                install_fabric(&app, &client, &game_dir, inst).await
+            } else {
+                install_vanilla(&app, &client, &game_dir, inst).await
+            };
+            match r {
+                Ok(_) => sync_mods(&app, &client, &launcher_dir, inst).await,
+                Err(e) => Err(e),
+            }
         };
         match result {
             Ok(_) => {
@@ -688,7 +932,7 @@ async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
                     step: inst.id.clone(), current: 100, total: 100,
                     label: format!("{} installé.", inst.name), error: false,
                 });
-                launcher_log(&logs, &format!("Instance '{}' installée", inst.id));
+                launcher_log(&logs, &format!("Instance '{}' prête", inst.id));
             }
             Err(e) => {
                 launcher_log(&logs, &format!("Erreur instance '{}': {e}", inst.id));
@@ -727,7 +971,11 @@ fn read_version_chain(game_dir: &Path, version_id: &str) -> Result<VersionJson, 
             (None, Some(pa)) => ver.arguments = Some(pa),
             _ => {}
         }
-        ver.libraries = { let mut m = parent.libraries; m.extend(std::mem::take(&mut ver.libraries)); m };
+        ver.libraries = {
+            let mut m = parent.libraries;
+            m.extend(std::mem::take(&mut ver.libraries));
+            dedup_libraries(m)
+        };
     }
     Ok(ver)
 }
@@ -761,6 +1009,14 @@ fn verify_instance(launcher_dir: &Path, inst: &InstanceConfig) -> Result<(), Str
             libs_dir.join(maven_path(&lib.name))
         };
         if !path.exists() { missing.push(format!("lib : {}", lib.name)); }
+    }
+
+    let m_dir = mods_dir(launcher_dir, inst);
+    for m in &inst.mods {
+        let file = mod_file_name(m);
+        if !m_dir.join(&file).exists() && !m_dir.join(format!("{file}.disabled")).exists() {
+            missing.push(format!("mod : {file}"));
+        }
     }
 
     if missing.is_empty() { Ok(()) } else {
@@ -839,6 +1095,10 @@ async fn launch_game(
     let inst = state.config.instances.iter().find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance '{instance_id}' introuvable"))?
         .clone();
+
+    if state.running.lock().unwrap().contains_key(&instance_id) {
+        return Err(format!("L'instance '{}' est déjà en cours d'exécution.", inst.name));
+    }
 
     verify_instance(&launcher_dir, &inst)?;
 
@@ -1003,15 +1263,48 @@ async fn launch_game(
             }
         });
     }
+    // Enregistre le process pour stop_game / get_running_instances.
+    // Le thread de fin utilise try_wait en boucle pour ne pas garder le lock.
+    let child = std::sync::Arc::new(Mutex::new(child));
+    state.running.lock().unwrap().insert(instance_id.clone(), child.clone());
+
     let iid_exit = instance_id.clone();
     let logs2    = logs.clone();
+    let app_exit = app.clone();
     std::thread::spawn(move || {
-        let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1);
+        let code = loop {
+            match child.lock().unwrap().try_wait() {
+                Ok(Some(status)) => break status.code().unwrap_or(-1),
+                Ok(None)         => {}
+                Err(_)           => break -1,
+            }
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        };
+        let state = app_exit.state::<AppState>();
+        state.running.lock().unwrap().remove(&iid_exit);
         launcher_log(&logs2, &format!("Instance '{}' terminée (code {code})", iid_exit));
-        let _ = app.emit("game:exit", serde_json::json!({ "instance_id": iid_exit, "code": code }));
+        let _ = app_exit.emit("game:exit", serde_json::json!({ "instance_id": iid_exit, "code": code }));
     });
 
     Ok(())
+}
+
+#[tauri::command]
+fn stop_game(state: State<AppState>, instance_id: String) -> Result<(), String> {
+    let child = state.running.lock().unwrap().get(&instance_id).cloned()
+        .ok_or_else(|| format!("Instance '{instance_id}' non lancée."))?;
+    let result = child.lock().unwrap().kill().map_err(|e| format!("Impossible d'arrêter le jeu : {e}"));
+    result
+}
+
+#[tauri::command]
+fn get_running_instances(state: State<AppState>) -> Vec<String> {
+    state.running.lock().unwrap().keys().cloned().collect()
+}
+
+#[tauri::command]
+fn get_launcher_version() -> String {
+    env!("CARGO_PKG_VERSION").into()
 }
 
 // ── Mise à jour ───────────────────────────────────────────────────────────────
@@ -1055,13 +1348,13 @@ async fn do_update(app: AppHandle, url: String) -> Result<(), String> {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tauri::command]
 fn set_custom_session(state: State<'_, AppState>, session: Option<CustomSession>) -> Result<(), String> {
     *state.custom_session.lock().unwrap() = session;
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -1083,7 +1376,13 @@ pub fn run() {
                 let _ = win.set_resizable(config.window_resizable);
             }
 
-            app.manage(AppState { config, settings: Mutex::new(settings), data_dir, custom_session: Mutex::new(None) });
+            app.manage(AppState {
+                config,
+                settings:       Mutex::new(settings),
+                data_dir,
+                custom_session: Mutex::new(None),
+                running:        Mutex::new(HashMap::new()),
+            });
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build()
@@ -1096,8 +1395,12 @@ pub fn run() {
             get_settings, save_settings,
             get_default_launcher_dir, get_init_status,
             run_setup, verify_game, launch_game,
+            stop_game, get_running_instances,
+            get_mods, add_mod, remove_mod, set_mod_enabled,
+            open_mods_folder, open_instance_folder,
             check_update, do_update,
             set_custom_session,
+            get_launcher_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

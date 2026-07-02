@@ -1,3 +1,9 @@
+export interface ModConfig {
+  url: string;
+  name?: string;
+  file_name?: string;
+}
+
 export interface InstanceConfig {
   id: string;
   name: string;
@@ -6,6 +12,7 @@ export interface InstanceConfig {
   loader_version: string;
   server_ip: string;
   server_port: number;
+  mods: ModConfig[];
 }
 
 export interface LauncherConfig {
@@ -38,12 +45,21 @@ export interface InstanceStatus {
   id: string;
   name: string;
   installed: boolean;
+  running: boolean;
 }
 
 export interface InitStatus {
   launcher_dir: string;
   java_ok: boolean;
   instances: InstanceStatus[];
+}
+
+export interface ModInfo {
+  file_name: string;
+  name: string;
+  enabled: boolean;
+  size: number;
+  managed: boolean;
 }
 
 export interface SetupProgress {
@@ -76,15 +92,35 @@ export declare const MC: {
   getSettings(): Promise<Settings>;
   saveSettings(s: Settings): Promise<void>;
   getDefaultDir(): Promise<string>;
+  getVersion(): Promise<string>;
   getInitStatus(): Promise<InitStatus>;
   runSetup(): Promise<void>;
   verify(instanceId: string): Promise<void>;
   play(instanceId: string): Promise<void>;
+  stop(instanceId: string): Promise<void>;
+  getRunning(): Promise<string[]>;
+  isRunning(instanceId: string): Promise<boolean>;
+  mods: {
+    list(instanceId: string): Promise<ModInfo[]>;
+    add(
+      instanceId: string,
+      url: string,
+      fileName?: string | null,
+    ): Promise<ModInfo>;
+    remove(instanceId: string, fileName: string): Promise<void>;
+    enable(instanceId: string, fileName: string): Promise<void>;
+    disable(instanceId: string, fileName: string): Promise<void>;
+    openFolder(instanceId: string): Promise<void>;
+  };
+  openInstanceFolder(instanceId: string): Promise<void>;
   checkUpdate(): Promise<UpdateInfo | null>;
   doUpdate(url: string): Promise<void>;
   setSession(session: CustomSession): Promise<void>;
   clearSession(): Promise<void>;
   close(): Promise<void>;
+  minimize(): Promise<void>;
+  toggleMaximize(): Promise<void>;
+  startDrag(): Promise<void>;
   on: {
     setupProgress(cb: (p: SetupProgress) => void): Promise<() => void>;
     setupDone(cb: () => void): Promise<() => void>;

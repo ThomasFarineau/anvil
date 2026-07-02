@@ -10,7 +10,7 @@
     "$schema": {
       "type": "string",
       "description": "JSON schema URL for validation",
-      "default": "./node_modules/anvil/src/client/config.schema.json"
+      "default": "./node_modules/@thomasfarineau/anvil/src/client/config.schema.json"
     },
     "identifier": {
       "type": "string",
@@ -105,6 +105,29 @@
             "maximum": 65535,
             "description": "Server port",
             "default": 25565
+          },
+          "mods": {
+            "type": "array",
+            "description": "Mods downloaded into this instance's mods/ folder during setup",
+            "items": {
+              "type": "object",
+              "required": ["url"],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Display name of the mod"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Direct download URL of the mod .jar"
+                },
+                "file_name": {
+                  "type": "string",
+                  "description": "Target file name in mods/ (defaults to the URL basename)"
+                }
+              }
+            }
           }
         }
       }
