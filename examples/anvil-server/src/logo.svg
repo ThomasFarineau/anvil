@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anvil logo">
+  <defs>
+    <linearGradient id="metal" x1="96" y1="112" x2="420" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4A5568"/>
+      <stop offset="1" stop-color="#0F1419"/>
+    </linearGradient>
+    <linearGradient id="topFace" x1="64" y1="112" x2="448" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B0BEC5"/>
+      <stop offset="1" stop-color="#546E7A"/>
+    </linearGradient>
+    <filter id="shadow" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <!-- Anvil top -->
+    <path d="M104 176H84L64 144H188L210 112H380C402 112 420 130 420 152V176H448L416 216H348L324 244H192L168 216H88L104 176Z"
+          fill="url(#metal)" stroke="#07101A" stroke-width="14" stroke-linejoin="round"/>
+
+    <!-- Top face highlight -->
+    <path d="M190 132H374C389 132 400 143 400 158V168H218L200 194H106L92 168H178L190 132Z"
+          fill="url(#topFace)" opacity="0.85"/>
+
+    <!-- Neck -->
+    <path d="M206 244H306L326 326H186L206 244Z"
+          fill="#1A232E" stroke="#07101A" stroke-width="14" stroke-linejoin="round"/>
+
+    <!-- Base -->
+    <path d="M144 326H368L400 390H112L144 326Z"
+          fill="#141C26" stroke="#07101A" stroke-width="14" stroke-linejoin="round"/>
+
+    <!-- Base top edge highlight -->
+    <path d="M158 342H354L368 362H144L158 342Z" fill="#3D4F5E" opacity="0.8"/>
+  </g>
+</svg>

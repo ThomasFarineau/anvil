@@ -1,0 +1,28 @@
+services:
+  anvil-server:
+    build: .
+    image: anvil-server
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    environment:
+      MONGO_URL: mongodb://mongo:27017/anvil
+      # Compte admin créé au premier démarrage (changez le mot de passe !)
+      ANVIL_ADMIN_USERNAME: admin
+      ANVIL_ADMIN_PASSWORD: admin
+      # Base publique des URLs de téléchargement (si derrière un proxy) :
+      # PUBLIC_URL: https://mods.example.com
+    volumes:
+      - anvil-data:/data
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  anvil-data:
+  mongo-data:

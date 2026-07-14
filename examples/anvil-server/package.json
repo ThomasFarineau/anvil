@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "bun ../../src/cli/index.ts dev",
+    "build": "bun ../../src/cli/index.ts build"
+  },
+  "name": "anvil-server-example",
+  "private": true
+}

@@ -12,6 +12,9 @@
     "anvil": "dist/cli.cjs",
     "create-anvil": "dist/cli.cjs"
   },
+  "workspaces": [
+    "server"
+  ],
   "files": [
     "dist/",
     "src/template/",

@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-surface: #0e1116;
+  --color-panel: #161b22;
+  --color-edge: #2b3240;
+  --color-accent: #e8833a;
+  --color-accent-soft: #f0a366;
+}
+
+body {
+  @apply bg-surface text-slate-200 antialiased;
+}
+
+.input {
+  @apply w-full rounded-md border border-edge bg-surface px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-500 focus:border-accent;
+}
+
+.btn {
+  @apply inline-flex cursor-pointer items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-black transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-ghost {
+  @apply inline-flex cursor-pointer items-center gap-2 rounded-md border border-edge px-3 py-2 text-sm text-slate-300 transition hover:border-accent hover:text-accent disabled:opacity-50;
+}
+
+.btn-danger {
+  @apply inline-flex cursor-pointer items-center rounded-md border border-red-900 px-2.5 py-1.5 text-xs text-red-400 transition hover:bg-red-950;
+}
+
+.panel {
+  @apply rounded-lg border border-edge bg-panel p-5;
+}
+
+.label {
+  @apply mb-1 block text-xs font-medium tracking-wide text-slate-400 uppercase;
+}

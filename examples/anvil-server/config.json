@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/@thomasfarineau/anvil/src/client/config.schema.json",
+  "identifier": "com.example.anvil.server",
+  "target": "./dist",
+  "app_name": "Anvil Server Example",
+  "data_folder": ".anvilServerLauncher",
+  "java_version": 21,
+  "update_url": "",
+  "logo": "./logo.svg",
+  "session": "anvil-session",
+  "anvil-server": "http://localhost:8080",
+  "anvil-key": "anvil_REPLACE_WITH_A_KEY_FROM_THE_WEB_UI",
+  "window_decorations": true,
+  "window_resizable": false
+}
