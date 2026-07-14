@@ -25,6 +25,10 @@ npm run dev
 
 `create` is interactive: pick **TypeScript** or **JavaScript**, then **Vanilla**, **React**, **Vue** or **Solid**. Skip the prompts with `--template <id>` — see [`examples/`](./examples) for a ready-made project of each template.
 
+## Anvil Server
+
+[`server/`](./server) is an optional self-hosted companion: it hosts your instances (mods, config files) and player accounts, so launchers can fetch them remotely instead of bundling everything at build time. Deploy it with `docker compose up -d` — see the [Anvil Server docs](https://thomasfarineau.github.io/anvil/server) for details.
+
 ## 📖 Documentation
 
 Full docs, guides and API reference: **[thomasfarineau.github.io/anvil](https://thomasfarineau.github.io/anvil/)** ([français](https://thomasfarineau.github.io/anvil/fr/))
@@ -35,6 +39,7 @@ Full docs, guides and API reference: **[thomasfarineau.github.io/anvil](https://
 - [config.json reference](https://thomasfarineau.github.io/anvil/config/)
 - [Mods per instance](https://thomasfarineau.github.io/anvil/config/mods)
 - [Session (offline / custom auth)](https://thomasfarineau.github.io/anvil/session)
+- [Anvil Server](https://thomasfarineau.github.io/anvil/server)
 - [JavaScript API](https://thomasfarineau.github.io/anvil/api)
 - [App icon generation](https://thomasfarineau.github.io/anvil/icons)
 - [Build & distribution](https://thomasfarineau.github.io/anvil/build)

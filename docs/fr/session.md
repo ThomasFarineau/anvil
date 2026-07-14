@@ -18,3 +18,20 @@ await MC.setSession({
 // Pour déconnecter :
 await MC.clearSession();
 ```
+
+## `"anvil-session"` — Comptes Anvil Server
+
+L'authentification (utilisateur + mot de passe + 2FA optionnelle) est validée
+par le [anvil-server](./server) déclaré dans le champ `anvil-server` :
+
+```js
+const res = await MC.anvilSession.login('Steve', 'password');
+if (res.status === 'totp_required') {
+  await MC.anvilSession.login('Steve', 'password', '123456');
+}
+
+await MC.anvilSession.restore(); // session persistée, au démarrage
+await MC.anvilSession.logout();
+```
+
+Voir [Anvil Server](./server) pour la mise en place complète.
