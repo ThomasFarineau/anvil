@@ -11,6 +11,7 @@ no need to vendor a copy of each in the repo.
 | [`vanilla-js`](./vanilla-js)         | `--template vanilla-js` | Plain HTML/JS, no build step (default)  |
 | [`vanilla-ts`](./vanilla-ts)         | `--template vanilla-ts` | TypeScript + Vite                       |
 | [`custom-session`](./custom-session) | —                       | `session: "custom"` authentication demo |
+| [`anvil-server`](./anvil-server)     | —                       | Instances + auth served by an [anvil-server](../server) (`session: "anvil-session"`) |
 
 Want React/Vue/Solid? Generate one anywhere with
 `npx @thomasfarineau/anvil create my-app --template react-ts` — every template

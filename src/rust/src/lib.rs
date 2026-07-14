@@ -22,16 +22,27 @@ pub struct ModConfig {
     #[serde(default)] pub file_name: String,
 }
 
+/// Fichier arbitraire (config de mod, options.txt…) déployé dans le dossier
+/// de l'instance pendant le setup. Servi par un anvil-server en général.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FileConfig {
+    pub path: String,
+    pub url:  String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InstanceConfig {
     pub id:             String,
-    pub name:           String,
-    pub mc_version:     String,
+    // name / mc_version sont optionnels dans config.json : une instance
+    // `{ "id": "..." }` est résolue au démarrage auprès du anvil-server.
+    #[serde(default)] pub name:           String,
+    #[serde(default)] pub mc_version:     String,
     #[serde(default)] pub loader:         String,
     #[serde(default)] pub loader_version: String,
     #[serde(default)] pub server_ip:      String,
     #[serde(default = "default_port")] pub server_port: u16,
     #[serde(default)] pub mods:           Vec<ModConfig>,
+    #[serde(default)] pub files:          Vec<FileConfig>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -45,6 +56,8 @@ pub struct LauncherConfig {
     #[serde(default = "default_true")]         pub window_resizable:   bool,
     #[serde(default)]                          pub logo:               String,
     #[serde(default = "default_session")]      pub session:            String,
+    #[serde(rename = "anvil-server", default)] pub anvil_server:       String,
+    #[serde(rename = "anvil-key", default)]    pub anvil_key:          String,
     #[serde(default)]                          pub instances:          Vec<InstanceConfig>,
 }
 
@@ -67,6 +80,8 @@ impl Default for LauncherConfig {
             window_resizable:   true,
             logo:               String::new(),
             session:            default_session(),
+            anvil_server:       String::new(),
+            anvil_key:          String::new(),
             instances:          Vec::new(),
         }
     }
@@ -356,6 +371,80 @@ fn find_config_json(app: &AppHandle) -> LauncherConfig {
     LauncherConfig::default()
 }
 
+// ── anvil-server ──────────────────────────────────────────────────────────────
+
+fn anvil_server_url(cfg: &LauncherConfig) -> Result<String, String> {
+    let url = cfg.anvil_server.trim().trim_end_matches('/');
+    if url.is_empty() {
+        return Err("Aucun serveur anvil configuré (champ 'anvil-server' de config.json).".into());
+    }
+    Ok(url.to_string())
+}
+
+fn anvil_cache_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("anvil-server-cache").join("instances.json")
+}
+
+/// Clé d'API à joindre si l'URL cible le anvil-server configuré.
+/// Les URLs externes (CDN de mods…) ne reçoivent jamais la clé.
+fn anvil_key_for<'a>(cfg: &'a LauncherConfig, url: &str) -> Option<&'a str> {
+    if cfg.anvil_key.is_empty() { return None; }
+    match anvil_server_url(cfg) {
+        Ok(server) if url.starts_with(&server) => Some(cfg.anvil_key.as_str()),
+        _ => None,
+    }
+}
+
+async fn fetch_remote_instances(
+    client: &reqwest::Client,
+    cfg:    &LauncherConfig,
+    server: &str,
+) -> Result<Vec<InstanceConfig>, String> {
+    let mut req = client.get(format!("{server}/api/launcher/instances"));
+    if !cfg.anvil_key.is_empty() { req = req.header("x-anvil-key", &cfg.anvil_key); }
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    resp.json::<Vec<InstanceConfig>>().await.map_err(|e| e.to_string())
+}
+
+/// Récupère la liste des instances actives auprès du anvil-server (le
+/// config.json ne déclare plus les instances, seulement le serveur et la
+/// clé d'API). La liste est mise en cache sur disque afin que le launcher
+/// reste utilisable hors-ligne.
+fn resolve_remote_instances(config: &mut LauncherConfig, data_dir: &Path, logs: &Path) {
+    let Ok(server) = anvil_server_url(config) else { return };
+    let cache_file = anvil_cache_file(data_dir);
+
+    tauri::async_runtime::block_on(async {
+        let Ok(client) = reqwest::Client::builder()
+            .user_agent("HomeLauncher/1.0")
+            .timeout(std::time::Duration::from_secs(8))
+            .build() else { return };
+
+        match fetch_remote_instances(&client, config, &server).await {
+            Ok(remote) => {
+                launcher_log(logs, &format!(
+                    "anvil-server: {} instance(s) résolue(s)", remote.len()
+                ));
+                let _ = save_json(&cache_file, &remote);
+                config.instances = remote;
+            }
+            Err(e) => {
+                launcher_log(logs, &format!(
+                    "anvil-server: échec ({e}) — utilisation du cache"
+                ));
+                if let Ok(text) = std::fs::read_to_string(&cache_file) {
+                    if let Ok(cached) = serde_json::from_str::<Vec<InstanceConfig>>(&text) {
+                        config.instances = cached;
+                    }
+                }
+            }
+        }
+    });
+}
+
 // ── Utilitaires JSON ──────────────────────────────────────────────────────────
 
 fn load_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
@@ -429,6 +518,32 @@ async fn save_if_missing(client: &reqwest::Client, url: &str, dest: &Path) -> Re
     if dest.exists() { return Ok(()); }
     if let Some(p) = dest.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
     let bytes = http_bytes(client, url).await?;
+    std::fs::write(dest, &bytes).map_err(|e| e.to_string())
+}
+
+/// Variante de http_bytes qui joint la clé d'API si l'URL cible le
+/// anvil-server configuré (mods hébergés, fichiers de config).
+async fn http_bytes_keyed(
+    client: &reqwest::Client,
+    cfg:    &LauncherConfig,
+    url:    &str,
+) -> Result<Vec<u8>, String> {
+    let mut req = client.get(url);
+    if let Some(key) = anvil_key_for(cfg, url) { req = req.header("x-anvil-key", key); }
+    req.send().await.map_err(|e| format!("GET {url}: {e}"))?
+        .error_for_status().map_err(|e| format!("GET {url}: {e}"))?
+        .bytes().await.map_err(|e| e.to_string()).map(|b| b.to_vec())
+}
+
+async fn save_if_missing_keyed(
+    client: &reqwest::Client,
+    cfg:    &LauncherConfig,
+    url:    &str,
+    dest:   &Path,
+) -> Result<(), String> {
+    if dest.exists() { return Ok(()); }
+    if let Some(p) = dest.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
+    let bytes = http_bytes_keyed(client, cfg, url).await?;
     std::fs::write(dest, &bytes).map_err(|e| e.to_string())
 }
 
@@ -729,6 +844,7 @@ async fn install_fabric(
 async fn sync_mods(
     app:          &AppHandle,
     client:       &reqwest::Client,
+    cfg:          &LauncherConfig,
     launcher_dir: &Path,
     inst:         &InstanceConfig,
 ) -> Result<(), String> {
@@ -749,8 +865,47 @@ async fn sync_mods(
             label:   format!("Mod {label} ({}/{total})", i + 1),
             error:   false,
         });
-        save_if_missing(client, &m.url, &dir.join(&file)).await
+        save_if_missing_keyed(client, cfg, &m.url, &dir.join(&file)).await
             .map_err(|e| format!("Mod '{label}': {e}"))?;
+    }
+    Ok(())
+}
+
+fn check_rel_path(path: &str) -> Result<(), String> {
+    if path.is_empty() || path.contains("..") || path.starts_with('/')
+        || path.contains('\\') || path.contains(':')
+    {
+        return Err(format!("Chemin de fichier invalide : '{path}'"));
+    }
+    Ok(())
+}
+
+/// Télécharge les fichiers déclarés (configs de mods…) dans le dossier de
+/// l'instance. Toujours écrasés : le anvil-server est la source de vérité.
+async fn sync_files(
+    app:          &AppHandle,
+    client:       &reqwest::Client,
+    cfg:          &LauncherConfig,
+    launcher_dir: &Path,
+    inst:         &InstanceConfig,
+) -> Result<(), String> {
+    if inst.files.is_empty() { return Ok(()); }
+    let base  = instance_data_dir(launcher_dir, inst);
+    let total = inst.files.len();
+    for (i, f) in inst.files.iter().enumerate() {
+        check_rel_path(&f.path)?;
+        let _ = app.emit("setup:progress", SetupProgress {
+            step:    inst.id.clone(),
+            current: 100 * i / total.max(1),
+            total:   100,
+            label:   format!("Fichier {} ({}/{total})", f.path, i + 1),
+            error:   false,
+        });
+        let dest = base.join(&f.path);
+        if let Some(p) = dest.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
+        let bytes = http_bytes_keyed(client, cfg, &f.url).await
+            .map_err(|e| format!("Fichier '{}': {e}", f.path))?;
+        std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -816,7 +971,7 @@ async fn add_mod(
 
     let client = reqwest::Client::builder().user_agent("HomeLauncher/1.0").build()
         .map_err(|e| e.to_string())?;
-    let bytes = http_bytes(&client, &m.url).await?;
+    let bytes = http_bytes_keyed(&client, &state.config, &m.url).await?;
     std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
 
     Ok(ModInfo {
@@ -909,11 +1064,20 @@ async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
         .map_err(|e| e.to_string())?;
 
     for inst in &cfg.instances {
-        let result = if is_instance_installed(&launcher_dir, inst) {
+        let result = if inst.mc_version.is_empty() {
+            // Instance déclarée par {id} mais jamais résolue : serveur anvil
+            // injoignable et aucun cache disponible.
+            Err(format!(
+                "Instance '{}' non résolue — anvil-server injoignable ?", inst.id
+            ))
+        } else if is_instance_installed(&launcher_dir, inst) {
             launcher_log(&logs, &format!("Instance '{}' déjà installée", inst.id));
-            // On synchronise quand même les mods : un ajout dans config.json
-            // doit être téléchargé sans réinstaller l'instance.
-            sync_mods(&app, &client, &launcher_dir, inst).await
+            // On synchronise quand même mods et fichiers : un ajout côté
+            // config/serveur doit être téléchargé sans réinstaller l'instance.
+            match sync_mods(&app, &client, &cfg, &launcher_dir, inst).await {
+                Ok(_) => sync_files(&app, &client, &cfg, &launcher_dir, inst).await,
+                Err(e) => Err(e),
+            }
         } else {
             launcher_log(&logs, &format!("Installation instance '{}' ({})", inst.id, inst.mc_version));
             let r = if inst.loader == "fabric" {
@@ -922,7 +1086,10 @@ async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
                 install_vanilla(&app, &client, &game_dir, inst).await
             };
             match r {
-                Ok(_) => sync_mods(&app, &client, &launcher_dir, inst).await,
+                Ok(_) => match sync_mods(&app, &client, &cfg, &launcher_dir, inst).await {
+                    Ok(_) => sync_files(&app, &client, &cfg, &launcher_dir, inst).await,
+                    Err(e) => Err(e),
+                },
                 Err(e) => Err(e),
             }
         };
@@ -1122,6 +1289,15 @@ async fn launch_game(
             match &*guard {
                 Some(s) => (s.username.clone(), s.uuid.clone(), s.access_token.clone(), "msa"),
                 None    => offline_auth(&fallback_name),
+            }
+        },
+        // La session est gérée par le anvil-server : pas de fallback offline,
+        // le joueur doit être connecté.
+        "anvil-session" => {
+            let guard = state.custom_session.lock().unwrap();
+            match &*guard {
+                Some(s) => (s.username.clone(), s.uuid.clone(), s.access_token.clone(), "msa"),
+                None    => return Err("Aucune session active — connectez-vous d'abord.".into()),
             }
         },
         _ => offline_auth(&fallback_name),
@@ -1346,6 +1522,135 @@ async fn do_update(app: AppHandle, url: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Session anvil-server ──────────────────────────────────────────────────────
+
+#[derive(Serialize, Clone)]
+pub struct AnvilLoginResult {
+    pub status:   String, // "ok" | "totp_required"
+    pub username: String,
+    pub uuid:     String,
+}
+
+fn anvil_session_path(data_dir: &Path) -> PathBuf { data_dir.join("anvil_session.json") }
+
+fn anvil_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("HomeLauncher/1.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// POST vers le anvil-server avec la clé d'API du config.json.
+fn anvil_post(
+    client: &reqwest::Client,
+    cfg:    &LauncherConfig,
+    url:    String,
+) -> reqwest::RequestBuilder {
+    let mut req = client.post(url);
+    if !cfg.anvil_key.is_empty() { req = req.header("x-anvil-key", &cfg.anvil_key); }
+    req
+}
+
+/// Connexion au anvil-server (mode session "anvil-session").
+/// Retourne status "totp_required" si le compte exige un code 2FA.
+#[tauri::command]
+async fn anvil_session_login(
+    state:    State<'_, AppState>,
+    username: String,
+    password: String,
+    code:     Option<String>,
+) -> Result<AnvilLoginResult, String> {
+    let server = anvil_server_url(&state.config)?;
+    let client = anvil_http_client()?;
+    let resp = anvil_post(&client, &state.config, format!("{server}/api/launcher/session"))
+        .json(&serde_json::json!({ "username": username, "password": password, "code": code }))
+        .send().await.map_err(|e| format!("Erreur réseau : {e}"))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+
+    if status.is_success() {
+        let session = CustomSession {
+            username:     body["username"].as_str().unwrap_or(&username).to_string(),
+            uuid:         body["uuid"].as_str().unwrap_or_default().to_string(),
+            access_token: body["access_token"].as_str().unwrap_or_default().to_string(),
+        };
+        let _ = save_json(&anvil_session_path(&state.data_dir), &session);
+        let result = AnvilLoginResult {
+            status: "ok".into(), username: session.username.clone(), uuid: session.uuid.clone(),
+        };
+        *state.custom_session.lock().unwrap() = Some(session);
+        Ok(result)
+    } else {
+        match body["error"].as_str() {
+            Some("totp_required") => Ok(AnvilLoginResult {
+                status: "totp_required".into(), username: String::new(), uuid: String::new(),
+            }),
+            Some("invalid_code") => Err("Code 2FA invalide.".into()),
+            Some("missing_api_key") | Some("invalid_api_key") =>
+                Err("Clé d'API invalide — vérifiez 'anvil-key' dans config.json.".into()),
+            _ => Err("Identifiants invalides.".into()),
+        }
+    }
+}
+
+/// Restaure la session persistée si elle est encore valide côté serveur.
+/// Hors-ligne, la session en cache est conservée pour permettre de jouer.
+#[tauri::command]
+async fn anvil_session_restore(state: State<'_, AppState>) -> Result<Option<AnvilLoginResult>, String> {
+    let path = anvil_session_path(&state.data_dir);
+    let saved: Option<CustomSession> = std::fs::read_to_string(&path).ok()
+        .and_then(|s| serde_json::from_str(&s).ok());
+    let Some(saved) = saved else { return Ok(None) };
+    let Ok(server) = anvil_server_url(&state.config) else { return Ok(None) };
+    let client = anvil_http_client()?;
+
+    let session = match anvil_post(&client, &state.config, format!("{server}/api/launcher/session/validate"))
+        .json(&serde_json::json!({ "token": saved.access_token }))
+        .send().await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            CustomSession {
+                username:     body["username"].as_str().unwrap_or(&saved.username).to_string(),
+                uuid:         body["uuid"].as_str().unwrap_or(&saved.uuid).to_string(),
+                access_token: saved.access_token,
+            }
+        }
+        Ok(resp) => {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            if body["error"].as_str() == Some("invalid_token") {
+                // Token révoqué ou expiré : on oublie la session.
+                std::fs::remove_file(&path).ok();
+                return Ok(None);
+            }
+            saved // autre erreur (clé d'API…) : on garde la session locale
+        }
+        Err(_) => saved, // serveur injoignable : session hors-ligne
+    };
+
+    let result = AnvilLoginResult {
+        status: "ok".into(), username: session.username.clone(), uuid: session.uuid.clone(),
+    };
+    *state.custom_session.lock().unwrap() = Some(session);
+    Ok(Some(result))
+}
+
+#[tauri::command]
+async fn anvil_session_logout(state: State<'_, AppState>) -> Result<(), String> {
+    let saved = state.custom_session.lock().unwrap().take();
+    std::fs::remove_file(anvil_session_path(&state.data_dir)).ok();
+    if let (Ok(server), Some(session)) = (anvil_server_url(&state.config), saved) {
+        if let Ok(client) = anvil_http_client() {
+            let _ = anvil_post(&client, &state.config, format!("{server}/api/launcher/session/logout"))
+                .json(&serde_json::json!({ "token": session.access_token }))
+                .send().await;
+        }
+    }
+    Ok(())
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1361,13 +1666,16 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()
                 .unwrap_or_else(|_| dirs::data_local_dir().unwrap_or_default().join("HomeLauncher"));
             std::fs::create_dir_all(&data_dir)?;
-            let config:   LauncherConfig = find_config_json(app.handle());
-            let settings: Settings       = load_json(&data_dir.join("settings.json"));
+            let mut config: LauncherConfig = find_config_json(app.handle());
+            let settings:   Settings       = load_json(&data_dir.join("settings.json"));
 
             // Log du démarrage dans le launcher_dir final
             let launcher_dir = get_launcher_dir(&settings, &config);
             launcher_log(&log_dir(&launcher_dir),
                 &format!("HomeLauncher démarré — {} instance(s)", config.instances.len()));
+
+            // Résolution des instances déclarées par id auprès du anvil-server
+            resolve_remote_instances(&mut config, &data_dir, &log_dir(&launcher_dir));
 
             // Appliquer les options de fenêtre depuis config.json
             if let Some(win) = app.get_webview_window("main") {
@@ -1400,6 +1708,7 @@ pub fn run() {
             open_mods_folder, open_instance_folder,
             check_update, do_update,
             set_custom_session,
+            anvil_session_login, anvil_session_restore, anvil_session_logout,
             get_launcher_version,
         ])
         .run(tauri::generate_context!())

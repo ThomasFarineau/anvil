@@ -4,6 +4,11 @@ export interface ModConfig {
   file_name?: string;
 }
 
+export interface FileConfig {
+  path: string;
+  url: string;
+}
+
 export interface InstanceConfig {
   id: string;
   name: string;
@@ -13,6 +18,7 @@ export interface InstanceConfig {
   server_ip: string;
   server_port: number;
   mods: ModConfig[];
+  files: FileConfig[];
 }
 
 export interface LauncherConfig {
@@ -23,9 +29,11 @@ export interface LauncherConfig {
   java_version: number;
   update_url: string;
   logo: string;
-  session: 'none' | 'mojang' | 'custom';
+  session: 'none' | 'mojang' | 'custom' | 'anvil-session';
   window_decorations: boolean;
   window_resizable: boolean;
+  'anvil-server': string;
+  'anvil-key': string;
   instances: InstanceConfig[];
 }
 
@@ -87,6 +95,12 @@ export interface UpdateInfo {
   notes: string;
 }
 
+export interface AnvilLoginResult {
+  status: 'ok' | 'totp_required';
+  username: string;
+  uuid: string;
+}
+
 export declare const MC: {
   getConfig(): Promise<LauncherConfig>;
   getSettings(): Promise<Settings>;
@@ -117,6 +131,15 @@ export declare const MC: {
   doUpdate(url: string): Promise<void>;
   setSession(session: CustomSession): Promise<void>;
   clearSession(): Promise<void>;
+  anvilSession: {
+    login(
+      username: string,
+      password: string,
+      code?: string | null,
+    ): Promise<AnvilLoginResult>;
+    restore(): Promise<AnvilLoginResult | null>;
+    logout(): Promise<void>;
+  };
   close(): Promise<void>;
   minimize(): Promise<void>;
   toggleMaximize(): Promise<void>;

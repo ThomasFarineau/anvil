@@ -52,6 +52,17 @@ export const MC = {
   setSession: (session) => _invoke('set_custom_session', { session }),
   clearSession: () => _invoke('set_custom_session', { session: null }),
 
+  // ── Session anvil-server ("session": "anvil-session") ─────
+  anvilSession: {
+    // Résout en { status: 'ok' | 'totp_required', username, uuid }.
+    // Rejette avec un message d'erreur si identifiants/code invalides.
+    login: (username, password, code = null) =>
+      _invoke('anvil_session_login', { username, password, code }),
+    // Restaure la session persistée (null si aucune/expirée).
+    restore: () => _invoke('anvil_session_restore'),
+    logout: () => _invoke('anvil_session_logout'),
+  },
+
   // ── Window ─────────────────────────────────────────────────
   close: () => _window.getCurrentWindow().close(),
   minimize: () => _window.getCurrentWindow().minimize(),

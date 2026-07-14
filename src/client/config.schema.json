@@ -4,7 +4,7 @@
   "title": "Anvil Launcher Config",
   "description": "Configuration file for an Anvil Minecraft launcher (config.json)",
   "type": "object",
-  "required": ["instances"],
+  "anyOf": [{ "required": ["instances"] }, { "required": ["anvil-server"] }],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -48,9 +48,19 @@
     },
     "session": {
       "type": "string",
-      "enum": ["none", "mojang", "custom"],
-      "description": "Authentication mode. 'none': offline. 'custom': client calls MC.setSession() before launch.",
+      "enum": ["none", "mojang", "custom", "anvil-session"],
+      "description": "Authentication mode. 'none': offline. 'custom': client calls MC.setSession() before launch. 'anvil-session': login (username/password/2FA) handled by the anvil-server declared in 'anvil-server'.",
       "default": "none"
+    },
+    "anvil-server": {
+      "type": "string",
+      "description": "Base URL of an anvil-server instance (e.g. https://mods.example.com). When set, the launcher fetches the list of enabled instances from this server at startup (the 'instances' field becomes unnecessary), and 'anvil-session' authentication is validated against it.",
+      "default": ""
+    },
+    "anvil-key": {
+      "type": "string",
+      "description": "API key generated in the anvil-server web UI (Clés API). Required to query the server: instance list, sessions and file downloads are refused without a valid key.",
+      "default": ""
     },
     "window_decorations": {
       "type": "boolean",
@@ -64,11 +74,11 @@
     },
     "instances": {
       "type": "array",
-      "description": "List of Minecraft instances available in the launcher",
+      "description": "List of Minecraft instances available in the launcher. Ignored (replaced) when 'anvil-server' is set: the server's enabled instances are used instead.",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "name", "mc_version"],
+        "required": ["id"],
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -125,6 +135,25 @@
                 "file_name": {
                   "type": "string",
                   "description": "Target file name in mods/ (defaults to the URL basename)"
+                }
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "description": "Extra files (mod configs, options.txt…) downloaded into the instance folder during setup. Always overwritten: the source (usually an anvil-server) is authoritative.",
+            "items": {
+              "type": "object",
+              "required": ["path", "url"],
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Relative target path inside the instance folder (e.g. \"config/mymod.toml\")"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Direct download URL of the file"
                 }
               }
             }
