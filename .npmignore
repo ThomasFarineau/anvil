@@ -4,6 +4,7 @@ node_modules/
 app/
 examples/
 tests/
+server/
 docs/
 *.iml
 bun.lock

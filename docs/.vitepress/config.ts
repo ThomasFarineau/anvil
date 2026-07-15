@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitepress';
 
 export default defineConfig({
-  title: 'anvil',
+  title: 'Anvil',
   description: 'Build a native Minecraft launcher by writing only HTML.',
   base: '/anvil/',
   cleanUrls: true,

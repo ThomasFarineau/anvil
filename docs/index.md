@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: anvil
+  name: Anvil
   text: Build a native Minecraft launcher by writing only HTML.
   tagline: The Rust backend handles Java, downloads, launch and updates. You only touch the frontend.
   image:

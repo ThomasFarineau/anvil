@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: anvil
+  name: Anvil
   text: Crée un launcher Minecraft natif en écrivant seulement du HTML.
   tagline: Le backend Rust gère Java, les téléchargements, le lancement et les mises à jour. Vous ne touchez qu'au frontend.
   image:
