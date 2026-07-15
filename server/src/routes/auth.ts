@@ -200,20 +200,14 @@ authRoutes.post('/passkey/register/verify', requireAuth, async (c) => {
     name: (name || 'Passkey').slice(0, 64),
     createdAt: new Date(),
   };
-  await users().updateOne(
-    { _id: user._id },
-    { $push: { passkeys: passkey } },
-  );
+  await users().updateOne({ _id: user._id }, { $push: { passkeys: passkey } });
   return c.json({ ok: true, passkey: publicPasskey(passkey) });
 });
 
 authRoutes.delete('/passkey/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
-  await users().updateOne(
-    { _id: user._id },
-    { $pull: { passkeys: { id } } },
-  );
+  await users().updateOne({ _id: user._id }, { $pull: { passkeys: { id } } });
   return c.json({ ok: true });
 });
 

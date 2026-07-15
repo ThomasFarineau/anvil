@@ -189,9 +189,7 @@ export default function Users() {
                     <Show
                       when={user.totpEnabled}
                       fallback={<span class="text-slate-500">—</span>}>
-                      <span class="text-emerald-400">
-                        {t('users.enabled')}
-                      </span>
+                      <span class="text-emerald-400">{t('users.enabled')}</span>
                     </Show>
                     <Show when={user.passkeyCount > 0}>
                       <span class="ml-2 text-accent">

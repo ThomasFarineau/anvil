@@ -88,7 +88,9 @@ export default function Account() {
       const { defaultName, ...options } = await post<
         Record<string, unknown> & { defaultName: string }
       >('/api/auth/passkey/register/options');
-      const response = await startRegistration({ optionsJSON: options as never });
+      const response = await startRegistration({
+        optionsJSON: options as never,
+      });
       const name =
         (await promptDialog(t('account.passkeyNamePrompt'), {
           defaultValue: defaultName,
@@ -102,7 +104,12 @@ export default function Account() {
   };
 
   const removePasskey = async (passkey: Passkey) => {
-    if (!(await confirmDialog(t('account.confirmRemovePasskey', { name: passkey.name }), { danger: true })))
+    if (
+      !(await confirmDialog(
+        t('account.confirmRemovePasskey', { name: passkey.name }),
+        { danger: true },
+      ))
+    )
       return;
     try {
       await del(`/api/auth/passkey/${passkey.id}`);
@@ -135,9 +142,7 @@ export default function Account() {
         <Show
           when={(session.me()?.passkeys.length ?? 0) > 0}
           fallback={
-            <p class="mb-4 text-sm text-slate-500">
-              {t('account.noPasskeys')}
-            </p>
+            <p class="mb-4 text-sm text-slate-500">{t('account.noPasskeys')}</p>
           }>
           <ul class="mb-4 divide-y divide-edge">
             <For each={session.me()?.passkeys}>

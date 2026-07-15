@@ -142,7 +142,12 @@ export default function InstanceDetail() {
   };
 
   const removeInstance = async () => {
-    if (!(await confirmDialog(t('instanceDetail.confirmDelete', { id: params.id ?? '' }), { danger: true }))) {
+    if (
+      !(await confirmDialog(
+        t('instanceDetail.confirmDelete', { id: params.id ?? '' }),
+        { danger: true },
+      ))
+    ) {
       return;
     }
     await del(`/api/instances/${params.id}`).catch(fail);
@@ -309,7 +314,9 @@ export default function InstanceDetail() {
 
           <section class="panel">
             <h2 class="mb-1 font-medium text-slate-100">
-              {t('instanceDetail.filesTitle', { count: instance().files.length })}
+              {t('instanceDetail.filesTitle', {
+                count: instance().files.length,
+              })}
             </h2>
             <p class="mb-4 text-sm text-slate-400">
               {t('instanceDetail.filesHint')}{' '}

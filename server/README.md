@@ -18,13 +18,13 @@ on first start from the environment variables (`ANVIL_ADMIN_USERNAME` /
 away**.
 
 | Variable               | Default                       | Purpose                              |
-| ---------------------- | ------------------------------ | ------------------------------------- |
-| `PORT`                 | `8080`                         | Listen port                           |
-| `MONGO_URL`            | `mongodb://mongo:27017/anvil` | MongoDB connection string             |
-| `DATA_DIR`             | `/data`                        | Uploaded mods / config files storage |
-| `PUBLIC_URL`           | _(request origin)_             | Base of generated download URLs      |
-| `ANVIL_ADMIN_USERNAME` | `admin`                        | Bootstrap admin login                 |
-| `ANVIL_ADMIN_PASSWORD` | `admin`                        | Bootstrap admin password              |
+| ---------------------- | ----------------------------- | ------------------------------------ |
+| `PORT`                 | `8080`                        | Listen port                          |
+| `MONGO_URL`            | `mongodb://mongo:27017/anvil` | MongoDB connection string            |
+| `DATA_DIR`             | `/data`                       | Uploaded mods / config files storage |
+| `PUBLIC_URL`           | _(request origin)_            | Base of generated download URLs      |
+| `ANVIL_ADMIN_USERNAME` | `admin`                       | Bootstrap admin login                |
+| `ANVIL_ADMIN_PASSWORD` | `admin`                       | Bootstrap admin password             |
 
 ## Concepts
 
@@ -65,12 +65,12 @@ bun test         # unit tests
 
 ## Launcher API (API key required: `x-anvil-key` header)
 
-| Route                                 | Description                          |
-| -------------------------------------- | ------------------------------------- |
-| `GET /api/launcher/instances`         | List of enabled instances (mods, files, URLs) |
-| `GET /api/launcher/instances/:id`     | Definition of an enabled instance    |
+| Route                                 | Description                                     |
+| ------------------------------------- | ----------------------------------------------- |
+| `GET /api/launcher/instances`         | List of enabled instances (mods, files, URLs)   |
+| `GET /api/launcher/instances/:id`     | Definition of an enabled instance               |
 | `POST /api/launcher/session`          | Player login → `{username, uuid, access_token}` |
-| `POST /api/launcher/session/validate` | Validate an existing token           |
-| `POST /api/launcher/session/logout`   | Revoke a token                        |
-| `GET /files/:id/mods/:file`           | Download a hosted mod                |
-| `GET /files/:id/files/*`              | Download a config file               |
+| `POST /api/launcher/session/validate` | Validate an existing token                      |
+| `POST /api/launcher/session/logout`   | Revoke a token                                  |
+| `GET /files/:id/mods/:file`           | Download a hosted mod                           |
+| `GET /files/:id/files/*`              | Download a config file                          |

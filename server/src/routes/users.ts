@@ -111,7 +111,10 @@ userRoutes.post('/:id/totp/reset', async (c) => {
 userRoutes.post('/:id/passkeys/reset', async (c) => {
   const id = parseId(c.req.param('id'));
   if (!id) return c.json({ error: 'not_found' }, 404);
-  const result = await users().updateOne({ _id: id }, { $set: { passkeys: [] } });
+  const result = await users().updateOne(
+    { _id: id },
+    { $set: { passkeys: [] } },
+  );
   if (result.matchedCount === 0) return c.json({ error: 'not_found' }, 404);
   await deleteSubjectSessions(id);
   return c.json({ ok: true });

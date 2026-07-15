@@ -43,7 +43,8 @@ export async function promptDialog(
     cancelButtonText: t('dialog.cancel'),
     background: isDark() ? '#161b22' : '#ffffff',
     color: isDark() ? '#e2e8f0' : '#0f172a',
-    inputValidator: (value: string) => (value ? undefined : t('dialog.required')),
+    inputValidator: (value: string) =>
+      value ? undefined : t('dialog.required'),
   });
   return result.isConfirmed ? (result.value as string) : null;
 }

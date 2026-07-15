@@ -21,7 +21,10 @@ export function clientFingerprint(c: Context<AuthEnv>): string {
   const ip =
     forwarded ?? c.env?.server?.requestIP(c.req.raw)?.address ?? 'unknown';
   const ua = c.req.header('user-agent') ?? '';
-  const hash = createHash('sha256').update(`${ip}|${ua}`).digest('hex').slice(0, 12);
+  const hash = createHash('sha256')
+    .update(`${ip}|${ua}`)
+    .digest('hex')
+    .slice(0, 12);
   return `client-${hash}`;
 }
 
@@ -33,6 +36,7 @@ export function rpOrigin(c: Context): string {
   // lui-même), on lit le schéma réel de la requête plutôt que de supposer
   // http, sinon la vérification WebAuthn échoue (mismatch d'origine).
   const proto =
-    c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '');
+    c.req.header('x-forwarded-proto') ??
+    new URL(c.req.url).protocol.replace(':', '');
   return `${proto}://${c.req.header('host') ?? 'localhost'}`;
 }

@@ -149,7 +149,11 @@ export async function checkPlayerCredentials(
   password: string,
   code: string | undefined,
 ): Promise<CredentialCheck<PlayerDoc>> {
-  return checkPlayerAccount(await players().findOne({ username }), password, code);
+  return checkPlayerAccount(
+    await players().findOne({ username }),
+    password,
+    code,
+  );
 }
 
 /** Vérifie une clé d'authentification de compte joueur (launcher). */

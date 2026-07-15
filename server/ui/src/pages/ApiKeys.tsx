@@ -37,7 +37,11 @@ export default function ApiKeys() {
   };
 
   const remove = async (row: ApiKeyRow) => {
-    if (!(await confirmDialog(t('apiKeys.confirmRevoke', { name: row.name }), { danger: true }))) {
+    if (
+      !(await confirmDialog(t('apiKeys.confirmRevoke', { name: row.name }), {
+        danger: true,
+      }))
+    ) {
       return;
     }
     try {
@@ -54,7 +58,8 @@ export default function ApiKeys() {
         {t('apiKeys.title')}
       </h1>
       <p class="mb-6 text-sm text-slate-400">
-        {t('apiKeys.subtitle')} <code class="text-accent-soft">"anvil-key"</code>{' '}
+        {t('apiKeys.subtitle')}{' '}
+        <code class="text-accent-soft">"anvil-key"</code>{' '}
         {t('apiKeys.subtitleEnd')}
       </p>
 

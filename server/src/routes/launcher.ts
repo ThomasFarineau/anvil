@@ -74,10 +74,7 @@ launcherRoutes.get('/instances/:id', async (c) => {
 
 launcherRoutes.post('/session', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const { username, password, code, authKey } = body as Record<
-    string,
-    string
-  >;
+  const { username, password, code, authKey } = body as Record<string, string>;
   if (!authKey && (!username || !password)) {
     return c.json({ error: 'missing_fields' }, 400);
   }

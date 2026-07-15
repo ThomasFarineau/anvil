@@ -5,6 +5,11 @@ import { useSession } from '../App';
 import { ApiError, errorMessage, post } from '../api';
 import { t } from '../i18n';
 
+const tab = (active: boolean) =>
+  `flex-1 rounded-md px-3 py-1.5 text-sm transition ${
+    active ? 'bg-surface text-accent' : 'text-slate-400 hover:text-slate-200'
+  }`;
+
 export default function Login() {
   const session = useSession();
   const [mode, setMode] = createSignal<'password' | 'passkey'>('password');
@@ -56,13 +61,6 @@ export default function Login() {
     }
   };
 
-  const tab = (active: boolean) =>
-    `flex-1 rounded-md px-3 py-1.5 text-sm transition ${
-      active
-        ? 'bg-surface text-accent'
-        : 'text-slate-400 hover:text-slate-200'
-    }`;
-
   return (
     <div class="flex min-h-screen items-center justify-center p-4">
       <div class="panel w-full max-w-sm">
@@ -107,7 +105,9 @@ export default function Login() {
                 class="btn w-full justify-center"
                 disabled={busy()}
                 onClick={() => void signInWithPasskey()}>
-                {busy() ? t('login.passkeySigningIn') : t('login.passkeySignIn')}
+                {busy()
+                  ? t('login.passkeySigningIn')
+                  : t('login.passkeySignIn')}
               </button>
             </div>
           }>

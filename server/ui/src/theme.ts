@@ -16,16 +16,11 @@ export function setTheme(next: Theme) {
   setThemeSignal(next);
 }
 
-export function cycleTheme() {
-  const order: Theme[] = ['dark', 'light', 'system'];
-  setTheme(order[(order.indexOf(theme()) + 1) % order.length]);
-}
-
 const media = window.matchMedia('(prefers-color-scheme: dark)');
 
 function apply() {
-  const resolved = theme() === 'system' ? (media.matches ? 'dark' : 'light') : theme();
-  document.documentElement.dataset.theme = resolved;
+  document.documentElement.dataset.theme =
+    theme() === 'system' ? (media.matches ? 'dark' : 'light') : theme();
 }
 
 media.addEventListener('change', () => {

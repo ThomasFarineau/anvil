@@ -96,8 +96,7 @@ const en = {
   'players.password': 'Password',
   'players.create': 'Create',
   'players.created': 'Player created.',
-  'players.resetPasswordPrompt': (v: Vars) =>
-    `New password for ${v.username}:`,
+  'players.resetPasswordPrompt': (v: Vars) => `New password for ${v.username}:`,
   'players.passwordReset': 'Password reset (launcher sessions revoked).',
   'players.totpFor': (v: Vars) => `2FA for ${v.username}`,
   'players.totpHint':
@@ -131,7 +130,7 @@ const en = {
 
   'users.title': 'Users',
   'users.subtitle':
-    "Accounts for accessing this web UI. Player (launcher) accounts are managed in the Players tab.",
+    'Accounts for accessing this web UI. Player (launcher) accounts are managed in the Players tab.',
   'users.username': 'Username',
   'users.password': 'Password',
   'users.role': 'Role',
@@ -171,7 +170,8 @@ const en = {
   'apiKeys.revoke': 'Revoke',
   'apiKeys.confirmRevoke': (v: Vars) =>
     `Revoke key "${v.name}"? Launchers using it will no longer be able to reach this server.`,
-  'apiKeys.empty': 'No keys yet. Without a key, no launcher can use this server.',
+  'apiKeys.empty':
+    'No keys yet. Without a key, no launcher can use this server.',
 
   'account.title': 'My account',
   'account.changePassword': 'Change password',
@@ -258,7 +258,7 @@ const fr: typeof en = {
   'login.username': 'Utilisateur',
   'login.password': 'Mot de passe',
   'login.tabPassword': 'Mot de passe',
-  'login.tabPasskey': 'Clé d\'accès',
+  'login.tabPasskey': "Clé d'accès",
   'login.passkeyIntro':
     "Connectez-vous avec une clé d'accès (Windows Hello, Touch ID, clé de sécurité…) — pas besoin de mot de passe.",
   'login.passkeySignIn': "Se connecter avec une clé d'accès",
@@ -274,7 +274,7 @@ const fr: typeof en = {
   'instances.form.loader': 'Loader',
   'instances.form.create': 'Créer',
   'instances.empty':
-    "Aucune instance. Créez-en une pour la référencer dans le config.json du launcher.",
+    'Aucune instance. Créez-en une pour la référencer dans le config.json du launcher.',
   'instances.disabled': 'désactivée',
   'instances.vanilla': 'vanilla',
   'instances.mods': (v: Vars) => `${v.count} mod(s)`,
@@ -351,7 +351,7 @@ const fr: typeof en = {
   'players.resetAuthKey': 'Revenir au mot de passe',
   'players.confirmResetAuthKey': (v: Vars) =>
     `Repasser ${v.username} en mot de passe + 2FA ?`,
-  'players.authKeyReset': 'Retour à l\'authentification par mot de passe.',
+  'players.authKeyReset': "Retour à l'authentification par mot de passe.",
   'players.methodPassword': 'Mot de passe',
   'players.methodAuthKey': "Clé d'auth",
   'players.empty':
@@ -368,8 +368,7 @@ const fr: typeof en = {
   'users.resetPasswordPrompt': (v: Vars) =>
     `Nouveau mot de passe pour ${v.username} :`,
   'users.passwordReset': 'Mot de passe réinitialisé (sessions révoquées).',
-  'users.confirmResetTotp': (v: Vars) =>
-    `Désactiver la 2FA de ${v.username} ?`,
+  'users.confirmResetTotp': (v: Vars) => `Désactiver la 2FA de ${v.username} ?`,
   'users.totpReset': '2FA réinitialisée.',
   'users.confirmDelete': (v: Vars) => `Supprimer le compte ${v.username} ?`,
   'users.col.username': 'Utilisateur',
@@ -445,7 +444,8 @@ const fr: typeof en = {
     "Nom d'utilisateur invalide (2-32 caractères, a-z 0-9 _ . -).",
   'error.username_taken': "Ce nom d'utilisateur existe déjà.",
   'error.last_admin': 'Impossible : dernier compte admin.',
-  'error.cannot_delete_self': 'Vous ne pouvez pas supprimer votre propre compte.',
+  'error.cannot_delete_self':
+    'Vous ne pouvez pas supprimer votre propre compte.',
   'error.invalid_id': 'ID invalide (a-z, 0-9, - et _).',
   'error.id_taken': 'Cet ID existe déjà.',
   'error.missing_fields': 'Champs requis manquants.',
