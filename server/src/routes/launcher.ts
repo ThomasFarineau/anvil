@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 
 import {
+  checkPlayerByAuthKey,
   checkPlayerCredentials,
   createSession,
   deleteSession,
@@ -73,10 +74,17 @@ launcherRoutes.get('/instances/:id', async (c) => {
 
 launcherRoutes.post('/session', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const { username, password, code } = body as Record<string, string>;
-  if (!username || !password) return c.json({ error: 'missing_fields' }, 400);
+  const { username, password, code, authKey } = body as Record<
+    string,
+    string
+  >;
+  if (!authKey && (!username || !password)) {
+    return c.json({ error: 'missing_fields' }, 400);
+  }
 
-  const result = await checkPlayerCredentials(username, password, code);
+  const result = authKey
+    ? await checkPlayerByAuthKey(authKey)
+    : await checkPlayerCredentials(username, password, code);
   if (!result.ok) return c.json({ error: result.error }, 401);
 
   const token = await createSession(result.account._id, 'launcher');

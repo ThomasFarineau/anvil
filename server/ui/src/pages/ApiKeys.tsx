@@ -1,6 +1,8 @@
 import { createResource, createSignal, For, Show } from 'solid-js';
 
+import { confirmDialog } from '../alerts';
 import { api, del, errorMessage, post, type ApiKeyRow } from '../api';
+import { t } from '../i18n';
 
 export default function ApiKeys() {
   const [list, { refetch }] = createResource(() =>
@@ -21,7 +23,7 @@ export default function ApiKeys() {
     try {
       await post('/api/keys', { name: name() });
       setName('');
-      flash('Clé créée.');
+      flash(t('apiKeys.created'));
       void refetch();
     } catch (error_) {
       setMessage('');
@@ -31,15 +33,11 @@ export default function ApiKeys() {
 
   const copy = async (key: string) => {
     await navigator.clipboard.writeText(key).catch(() => {});
-    flash('Clé copiée dans le presse-papier.');
+    flash(t('apiKeys.copied'));
   };
 
   const remove = async (row: ApiKeyRow) => {
-    if (
-      !confirm(
-        `Révoquer la clé « ${row.name} » ? Les launchers qui l'utilisent ne pourront plus contacter ce serveur.`,
-      )
-    ) {
+    if (!(await confirmDialog(t('apiKeys.confirmRevoke', { name: row.name }), { danger: true }))) {
       return;
     }
     try {
@@ -52,24 +50,24 @@ export default function ApiKeys() {
 
   return (
     <div class="mx-auto max-w-4xl">
-      <h1 class="mb-1 text-2xl font-semibold text-slate-100">Clés API</h1>
+      <h1 class="mb-1 text-2xl font-semibold text-slate-100">
+        {t('apiKeys.title')}
+      </h1>
       <p class="mb-6 text-sm text-slate-400">
-        L'API launcher (instances, sessions, téléchargements) exige une clé.
-        Renseignez-la dans le champ{' '}
-        <code class="text-accent-soft">"anvil-key"</code> du config.json du
-        launcher.
+        {t('apiKeys.subtitle')} <code class="text-accent-soft">"anvil-key"</code>{' '}
+        {t('apiKeys.subtitleEnd')}
       </p>
 
       <form class="panel mb-6 flex flex-wrap items-end gap-3" onSubmit={create}>
         <div class="min-w-40 flex-1">
-          <label class="label">Nom (ex : launcher-prod)</label>
+          <label class="label">{t('apiKeys.nameLabel')}</label>
           <input
             class="input"
             value={name()}
             onInput={(e) => setName(e.currentTarget.value)}
           />
         </div>
-        <button class="btn">Générer une clé</button>
+        <button class="btn">{t('apiKeys.generate')}</button>
       </form>
 
       <Show when={message()}>
@@ -90,18 +88,20 @@ export default function ApiKeys() {
                 </code>
                 <p class="mt-1 text-xs text-slate-500">
                   {row.lastUsedAt
-                    ? `Dernière utilisation : ${new Date(row.lastUsedAt).toLocaleString()}`
-                    : 'Jamais utilisée'}
+                    ? t('apiKeys.lastUsed', {
+                        date: new Date(row.lastUsedAt).toLocaleString(),
+                      })
+                    : t('apiKeys.neverUsed')}
                 </p>
               </div>
               <div class="flex gap-2">
                 <button
                   class="btn-ghost px-2 py-1 text-xs"
                   onClick={() => void copy(row.key)}>
-                  Copier
+                  {t('apiKeys.copy')}
                 </button>
                 <button class="btn-danger" onClick={() => void remove(row)}>
-                  Révoquer
+                  {t('apiKeys.revoke')}
                 </button>
               </div>
             </div>
@@ -109,7 +109,7 @@ export default function ApiKeys() {
         </For>
         <Show when={(list() ?? []).length === 0}>
           <div class="panel text-center text-sm text-slate-400">
-            Aucune clé. Sans clé, aucun launcher ne peut utiliser ce serveur.
+            {t('apiKeys.empty')}
           </div>
         </Show>
       </div>

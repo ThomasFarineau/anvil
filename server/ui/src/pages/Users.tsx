@@ -1,6 +1,8 @@
 import { createResource, createSignal, For, Show } from 'solid-js';
 
+import { confirmDialog, promptDialog } from '../alerts';
 import { api, del, errorMessage, patch, post, type UserRow } from '../api';
+import { t } from '../i18n';
 
 export default function Users() {
   const [list, { refetch }] = createResource(() =>
@@ -33,7 +35,7 @@ export default function Users() {
       setUsername('');
       setPassword('');
       setRole('user');
-      flash('Utilisateur créé.');
+      flash(t('users.created'));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -41,21 +43,47 @@ export default function Users() {
   };
 
   const resetPassword = async (user: UserRow) => {
-    const next = prompt(`Nouveau mot de passe pour ${user.username} :`);
+    const next = await promptDialog(
+      t('users.resetPasswordPrompt', { username: user.username }),
+      { inputType: 'password' },
+    );
     if (!next) return;
     try {
       await post(`/api/users/${user.id}/password`, { password: next });
-      flash('Mot de passe réinitialisé (sessions révoquées).');
+      flash(t('users.passwordReset'));
     } catch (error_) {
       fail(error_);
     }
   };
 
   const resetTotp = async (user: UserRow) => {
-    if (!confirm(`Désactiver la 2FA de ${user.username} ?`)) return;
+    if (
+      !(await confirmDialog(
+        t('users.confirmResetTotp', { username: user.username }),
+        { danger: true },
+      ))
+    )
+      return;
     try {
       await post(`/api/users/${user.id}/totp/reset`);
-      flash('2FA réinitialisée.');
+      flash(t('users.totpReset'));
+      void refetch();
+    } catch (error_) {
+      fail(error_);
+    }
+  };
+
+  const resetPasskeys = async (user: UserRow) => {
+    if (
+      !(await confirmDialog(
+        t('users.confirmResetPasskeys', { username: user.username }),
+        { danger: true },
+      ))
+    )
+      return;
+    try {
+      await post(`/api/users/${user.id}/passkeys/reset`);
+      flash(t('users.passkeysReset'));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -74,7 +102,13 @@ export default function Users() {
   };
 
   const remove = async (user: UserRow) => {
-    if (!confirm(`Supprimer le compte ${user.username} ?`)) return;
+    if (
+      !(await confirmDialog(
+        t('users.confirmDelete', { username: user.username }),
+        { danger: true },
+      ))
+    )
+      return;
     try {
       await del(`/api/users/${user.id}`);
       void refetch();
@@ -85,15 +119,14 @@ export default function Users() {
 
   return (
     <div class="mx-auto max-w-4xl">
-      <h1 class="mb-1 text-2xl font-semibold text-slate-100">Utilisateurs</h1>
-      <p class="mb-6 text-sm text-slate-400">
-        Comptes d'accès à cette interface web. Les comptes des joueurs
-        (launcher) sont gérés dans l'onglet Joueurs.
-      </p>
+      <h1 class="mb-1 text-2xl font-semibold text-slate-100">
+        {t('users.title')}
+      </h1>
+      <p class="mb-6 text-sm text-slate-400">{t('users.subtitle')}</p>
 
       <form class="panel mb-6 flex flex-wrap items-end gap-3" onSubmit={create}>
         <div class="min-w-40 flex-1">
-          <label class="label">Utilisateur</label>
+          <label class="label">{t('users.username')}</label>
           <input
             class="input"
             value={username()}
@@ -101,7 +134,7 @@ export default function Users() {
           />
         </div>
         <div class="min-w-40 flex-1">
-          <label class="label">Mot de passe</label>
+          <label class="label">{t('users.password')}</label>
           <input
             class="input"
             type="password"
@@ -110,16 +143,16 @@ export default function Users() {
           />
         </div>
         <div>
-          <label class="label">Rôle</label>
+          <label class="label">{t('users.role')}</label>
           <select
             class="input"
             value={role()}
             onInput={(e) => setRole(e.currentTarget.value as 'user' | 'admin')}>
-            <option value="user">Utilisateur</option>
+            <option value="user">{t('role.user')}</option>
             <option value="admin">Admin</option>
           </select>
         </div>
-        <button class="btn">Créer</button>
+        <button class="btn">{t('users.create')}</button>
       </form>
 
       <Show when={message()}>
@@ -133,10 +166,10 @@ export default function Users() {
         <table class="w-full text-left text-sm">
           <thead class="border-b border-edge text-xs text-slate-400 uppercase">
             <tr>
-              <th class="px-4 py-3">Utilisateur</th>
-              <th class="px-4 py-3">Rôle</th>
-              <th class="px-4 py-3">2FA</th>
-              <th class="px-4 py-3 text-right">Actions</th>
+              <th class="px-4 py-3">{t('users.col.username')}</th>
+              <th class="px-4 py-3">{t('users.col.role')}</th>
+              <th class="px-4 py-3">{t('users.col.totp')}</th>
+              <th class="px-4 py-3 text-right">{t('users.col.actions')}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-edge">
@@ -153,35 +186,51 @@ export default function Users() {
                     </span>
                   </td>
                   <td class="px-4 py-3">
-                    {user.totpEnabled ? (
-                      <span class="text-emerald-400">activée</span>
-                    ) : (
-                      <span class="text-slate-500">—</span>
-                    )}
+                    <Show
+                      when={user.totpEnabled}
+                      fallback={<span class="text-slate-500">—</span>}>
+                      <span class="text-emerald-400">
+                        {t('users.enabled')}
+                      </span>
+                    </Show>
+                    <Show when={user.passkeyCount > 0}>
+                      <span class="ml-2 text-accent">
+                        {t('users.passkeys', { count: user.passkeyCount })}
+                      </span>
+                    </Show>
                   </td>
                   <td class="px-4 py-3">
                     <div class="flex justify-end gap-2">
                       <button
                         class="btn-ghost px-2 py-1 text-xs"
                         onClick={() => void toggleRole(user)}>
-                        {user.role === 'admin' ? '→ user' : '→ admin'}
+                        {user.role === 'admin'
+                          ? t('users.toUser')
+                          : t('users.toAdmin')}
                       </button>
                       <button
                         class="btn-ghost px-2 py-1 text-xs"
                         onClick={() => void resetPassword(user)}>
-                        Mot de passe
+                        {t('users.password.action')}
                       </button>
                       <Show when={user.totpEnabled}>
                         <button
                           class="btn-ghost px-2 py-1 text-xs"
                           onClick={() => void resetTotp(user)}>
-                          Reset 2FA
+                          {t('users.reset2fa')}
+                        </button>
+                      </Show>
+                      <Show when={user.passkeyCount > 0}>
+                        <button
+                          class="btn-ghost px-2 py-1 text-xs"
+                          onClick={() => void resetPasskeys(user)}>
+                          {t('users.resetPasskeys')}
                         </button>
                       </Show>
                       <button
                         class="btn-danger"
                         onClick={() => void remove(user)}>
-                        Supprimer
+                        {t('delete')}
                       </button>
                     </div>
                   </td>

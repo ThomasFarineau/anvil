@@ -20,7 +20,10 @@ export const COOKIE_NAME = 'anvil_sid';
 export const WEB_SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
 export const LAUNCHER_SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
 
-export type AuthEnv = { Variables: { user: UserDoc; session: SessionDoc } };
+export type AuthEnv = {
+  Variables: { user: UserDoc; session: SessionDoc };
+  Bindings: { server: Bun.Server<undefined> };
+};
 
 export function newToken(prefix = ''): string {
   return prefix + randomBytes(32).toString('base64url');
@@ -98,7 +101,7 @@ interface Credentialed {
   totpEnabled: boolean;
 }
 
-async function checkAccount<T extends Credentialed>(
+async function checkPassword<T extends Credentialed>(
   account: T | null,
   password: string,
   code: string | undefined,
@@ -121,7 +124,23 @@ export async function checkUserCredentials(
   password: string,
   code: string | undefined,
 ): Promise<CredentialCheck<UserDoc>> {
-  return checkAccount(await users().findOne({ username }), password, code);
+  return checkPassword(await users().findOne({ username }), password, code);
+}
+
+interface PlayerCredentialed extends Credentialed {
+  authMethod: 'password' | 'authkey';
+  authKey: string | null;
+}
+
+async function checkPlayerAccount<T extends PlayerCredentialed>(
+  account: T | null,
+  password: string,
+  code: string | undefined,
+): Promise<CredentialCheck<T>> {
+  if (!account || account.authMethod !== 'password') {
+    return { ok: false, error: 'invalid_credentials' };
+  }
+  return checkPassword(account, password, code);
 }
 
 /** Vérifie les identifiants d'un compte joueur (launcher). */
@@ -130,7 +149,22 @@ export async function checkPlayerCredentials(
   password: string,
   code: string | undefined,
 ): Promise<CredentialCheck<PlayerDoc>> {
-  return checkAccount(await players().findOne({ username }), password, code);
+  return checkPlayerAccount(await players().findOne({ username }), password, code);
+}
+
+/** Vérifie une clé d'authentification de compte joueur (launcher). */
+export async function checkPlayerByAuthKey(
+  authKey: string,
+): Promise<CredentialCheck<PlayerDoc>> {
+  const account = await players().findOne({ authKey });
+  if (!account || account.authMethod !== 'authkey' || !account.authKey) {
+    return { ok: false, error: 'invalid_credentials' };
+  }
+  return { ok: true, account };
+}
+
+export function newAuthKey(): string {
+  return newToken('anvilkey_');
 }
 
 export function webToken(c: Context): string {

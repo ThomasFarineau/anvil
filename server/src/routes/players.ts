@@ -1,7 +1,12 @@
 import { Hono } from 'hono';
 import { ObjectId } from 'mongodb';
 
-import { deleteSubjectSessions, requireAuth, type AuthEnv } from '../auth';
+import {
+  deleteSubjectSessions,
+  newAuthKey,
+  requireAuth,
+  type AuthEnv,
+} from '../auth';
 import { players, type PlayerDoc } from '../db';
 import { hashPassword } from '../password';
 import { newTotpSecret, totpUri, verifyTotp } from '../totp';
@@ -13,6 +18,7 @@ function publicPlayer(p: PlayerDoc) {
     username: p.username,
     uuid: p.uuid,
     totpEnabled: p.totpEnabled,
+    authMethod: p.authMethod,
     createdAt: p.createdAt,
   };
 }
@@ -52,6 +58,8 @@ playerRoutes.post('/', async (c) => {
     uuid: crypto.randomUUID(),
     totpSecret: null,
     totpEnabled: false,
+    authMethod: 'password',
+    authKey: null,
     createdAt: new Date(),
   };
   await players().insertOne(doc);
@@ -110,6 +118,33 @@ playerRoutes.post('/:id/totp/reset', async (c) => {
     { $set: { totpSecret: null, totpEnabled: false } },
   );
   if (result.matchedCount === 0) return c.json({ error: 'not_found' }, 404);
+  return c.json({ ok: true });
+});
+
+// ── Clé d'authentification (alternative à la 2FA pour ce joueur) ────────────
+
+playerRoutes.post('/:id/authkey', async (c) => {
+  const id = parseId(c.req.param('id'));
+  if (!id) return c.json({ error: 'not_found' }, 404);
+  const key = newAuthKey();
+  const result = await players().updateOne(
+    { _id: id },
+    { $set: { authMethod: 'authkey', authKey: key } },
+  );
+  if (result.matchedCount === 0) return c.json({ error: 'not_found' }, 404);
+  await deleteSubjectSessions(id);
+  return c.json({ authKey: key });
+});
+
+playerRoutes.post('/:id/authkey/reset', async (c) => {
+  const id = parseId(c.req.param('id'));
+  if (!id) return c.json({ error: 'not_found' }, 404);
+  const result = await players().updateOne(
+    { _id: id },
+    { $set: { authMethod: 'password', authKey: null } },
+  );
+  if (result.matchedCount === 0) return c.json({ error: 'not_found' }, 404);
+  await deleteSubjectSessions(id);
   return c.json({ ok: true });
 });
 

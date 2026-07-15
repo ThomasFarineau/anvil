@@ -1,7 +1,9 @@
 import QRCode from 'qrcode';
 import { createResource, createSignal, For, Show } from 'solid-js';
 
+import { confirmDialog, promptDialog } from '../alerts';
 import { api, del, errorMessage, post, type PlayerRow } from '../api';
+import { t } from '../i18n';
 
 interface TotpSetup {
   playerId: string;
@@ -20,6 +22,10 @@ export default function Players() {
   const [password, setPassword] = createSignal('');
   const [totpSetup, setTotpSetup] = createSignal<TotpSetup | null>(null);
   const [totpCode, setTotpCode] = createSignal('');
+  const [newAuthKey, setNewAuthKey] = createSignal<{
+    username: string;
+    key: string;
+  } | null>(null);
 
   const flash = (text: string) => {
     setError('');
@@ -40,7 +46,7 @@ export default function Players() {
       });
       setUsername('');
       setPassword('');
-      flash('Joueur créé.');
+      flash(t('players.created'));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -48,11 +54,14 @@ export default function Players() {
   };
 
   const resetPassword = async (player: PlayerRow) => {
-    const next = prompt(`Nouveau mot de passe pour ${player.username} :`);
+    const next = await promptDialog(
+      t('players.resetPasswordPrompt', { username: player.username }),
+      { inputType: 'password' },
+    );
     if (!next) return;
     try {
       await post(`/api/players/${player.id}/password`, { password: next });
-      flash('Mot de passe réinitialisé (sessions launcher révoquées).');
+      flash(t('players.passwordReset'));
     } catch (error_) {
       fail(error_);
     }
@@ -85,7 +94,7 @@ export default function Players() {
         code: totpCode(),
       });
       setTotpSetup(null);
-      flash(`2FA activée pour ${setup.username}.`);
+      flash(t('players.totpEnabledFor', { username: setup.username }));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -93,10 +102,50 @@ export default function Players() {
   };
 
   const resetTotp = async (player: PlayerRow) => {
-    if (!confirm(`Désactiver la 2FA de ${player.username} ?`)) return;
+    if (
+      !(await confirmDialog(
+        t('players.confirmResetTotp', { username: player.username }),
+        { danger: true },
+      ))
+    )
+      return;
     try {
       await post(`/api/players/${player.id}/totp/reset`);
-      flash('2FA réinitialisée.');
+      flash(t('players.totpReset'));
+      void refetch();
+    } catch (error_) {
+      fail(error_);
+    }
+  };
+
+  const useAuthKey = async (player: PlayerRow) => {
+    try {
+      const data = await post<{ authKey: string }>(
+        `/api/players/${player.id}/authkey`,
+      );
+      setNewAuthKey({ username: player.username, key: data.authKey });
+      void refetch();
+    } catch (error_) {
+      fail(error_);
+    }
+  };
+
+  const copyKey = async (key: string) => {
+    await navigator.clipboard.writeText(key).catch(() => {});
+    flash(t('apiKeys.copied'));
+  };
+
+  const resetAuthKey = async (player: PlayerRow) => {
+    if (
+      !(await confirmDialog(
+        t('players.confirmResetAuthKey', { username: player.username }),
+        { danger: true },
+      ))
+    )
+      return;
+    try {
+      await post(`/api/players/${player.id}/authkey/reset`);
+      flash(t('players.authKeyReset'));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -104,7 +153,13 @@ export default function Players() {
   };
 
   const remove = async (player: PlayerRow) => {
-    if (!confirm(`Supprimer le joueur ${player.username} ?`)) return;
+    if (
+      !(await confirmDialog(
+        t('players.confirmDelete', { username: player.username }),
+        { danger: true },
+      ))
+    )
+      return;
     try {
       await del(`/api/players/${player.id}`);
       void refetch();
@@ -115,16 +170,14 @@ export default function Players() {
 
   return (
     <div class="mx-auto max-w-4xl">
-      <h1 class="mb-1 text-2xl font-semibold text-slate-100">Joueurs</h1>
-      <p class="mb-6 text-sm text-slate-400">
-        Comptes utilisés par les launchers (
-        <code class="text-accent-soft">"session": "anvil-session"</code>).
-        Séparés des comptes de cette interface.
-      </p>
+      <h1 class="mb-1 text-2xl font-semibold text-slate-100">
+        {t('players.title')}
+      </h1>
+      <p class="mb-6 text-sm text-slate-400">{t('players.subtitle')}</p>
 
       <form class="panel mb-6 flex flex-wrap items-end gap-3" onSubmit={create}>
         <div class="min-w-40 flex-1">
-          <label class="label">Pseudo</label>
+          <label class="label">{t('players.username')}</label>
           <input
             class="input"
             value={username()}
@@ -132,7 +185,7 @@ export default function Players() {
           />
         </div>
         <div class="min-w-40 flex-1">
-          <label class="label">Mot de passe</label>
+          <label class="label">{t('players.password')}</label>
           <input
             class="input"
             type="password"
@@ -140,7 +193,7 @@ export default function Players() {
             onInput={(e) => setPassword(e.currentTarget.value)}
           />
         </div>
-        <button class="btn">Créer</button>
+        <button class="btn">{t('players.create')}</button>
       </form>
 
       <Show when={message()}>
@@ -154,21 +207,18 @@ export default function Players() {
         {(setup) => (
           <form class="panel mb-6" onSubmit={confirmTotp}>
             <h2 class="mb-2 font-medium text-slate-100">
-              2FA pour {setup().username}
+              {t('players.totpFor', { username: setup().username })}
             </h2>
-            <p class="mb-3 text-sm text-slate-400">
-              Faites scanner ce QR code au joueur (Google Authenticator,
-              Aegis…), puis saisissez un code généré pour confirmer :
-            </p>
+            <p class="mb-3 text-sm text-slate-400">{t('players.totpHint')}</p>
             <img
               src={setup().qr}
-              alt="QR code TOTP"
+              alt="TOTP QR code"
               class="mb-3 rounded-md bg-white p-2"
               width={192}
               height={192}
             />
             <p class="mb-4 text-xs text-slate-500">
-              Secret : <code>{setup().secret}</code>
+              {t('players.secret')}: <code>{setup().secret}</code>
             </p>
             <div class="flex gap-2">
               <input
@@ -178,15 +228,37 @@ export default function Players() {
                 value={totpCode()}
                 onInput={(e) => setTotpCode(e.currentTarget.value)}
               />
-              <button class="btn">Confirmer</button>
+              <button class="btn">{t('players.confirm')}</button>
               <button
                 type="button"
                 class="btn-ghost"
                 onClick={() => setTotpSetup(null)}>
-                Annuler
+                {t('players.cancel')}
               </button>
             </div>
           </form>
+        )}
+      </Show>
+
+      <Show when={newAuthKey()}>
+        {(data) => (
+          <div class="panel mb-6">
+            <h2 class="mb-2 font-medium text-slate-100">
+              {t('players.authKeyGenerated', { username: data().username })}
+            </h2>
+            <div class="mb-3 flex gap-2">
+              <code class="input flex-1 truncate">{data().key}</code>
+              <button
+                type="button"
+                class="btn-ghost"
+                onClick={() => void copyKey(data().key)}>
+                {t('apiKeys.copy')}
+              </button>
+            </div>
+            <button class="btn" onClick={() => setNewAuthKey(null)}>
+              {t('account.done')}
+            </button>
+          </div>
         )}
       </Show>
 
@@ -194,10 +266,10 @@ export default function Players() {
         <table class="w-full text-left text-sm">
           <thead class="border-b border-edge text-xs text-slate-400 uppercase">
             <tr>
-              <th class="px-4 py-3">Pseudo</th>
-              <th class="px-4 py-3">UUID</th>
-              <th class="px-4 py-3">2FA</th>
-              <th class="px-4 py-3 text-right">Actions</th>
+              <th class="px-4 py-3">{t('players.col.username')}</th>
+              <th class="px-4 py-3">{t('players.col.uuid')}</th>
+              <th class="px-4 py-3">{t('players.col.totp')}</th>
+              <th class="px-4 py-3 text-right">{t('players.col.actions')}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-edge">
@@ -209,38 +281,65 @@ export default function Players() {
                     <code class="text-xs text-slate-500">{player.uuid}</code>
                   </td>
                   <td class="px-4 py-3">
-                    {player.totpEnabled ? (
-                      <span class="text-emerald-400">activée</span>
-                    ) : (
-                      <span class="text-slate-500">—</span>
-                    )}
+                    <Show
+                      when={player.authMethod === 'authkey'}
+                      fallback={
+                        player.totpEnabled ? (
+                          <span class="text-emerald-400">
+                            {t('players.enabled')}
+                          </span>
+                        ) : (
+                          <span class="text-slate-500">—</span>
+                        )
+                      }>
+                      <span class="text-accent">
+                        {t('players.methodAuthKey')}
+                      </span>
+                    </Show>
                   </td>
                   <td class="px-4 py-3">
                     <div class="flex justify-end gap-2">
-                      <button
-                        class="btn-ghost px-2 py-1 text-xs"
-                        onClick={() => void resetPassword(player)}>
-                        Mot de passe
-                      </button>
                       <Show
-                        when={player.totpEnabled}
+                        when={player.authMethod === 'authkey'}
                         fallback={
-                          <button
-                            class="btn-ghost px-2 py-1 text-xs"
-                            onClick={() => void startTotp(player)}>
-                            Activer 2FA
-                          </button>
+                          <>
+                            <button
+                              class="btn-ghost px-2 py-1 text-xs"
+                              onClick={() => void resetPassword(player)}>
+                              {t('players.password.action')}
+                            </button>
+                            <Show
+                              when={player.totpEnabled}
+                              fallback={
+                                <button
+                                  class="btn-ghost px-2 py-1 text-xs"
+                                  onClick={() => void startTotp(player)}>
+                                  {t('players.enable2fa')}
+                                </button>
+                              }>
+                              <button
+                                class="btn-ghost px-2 py-1 text-xs"
+                                onClick={() => void resetTotp(player)}>
+                                {t('players.reset2fa')}
+                              </button>
+                            </Show>
+                            <button
+                              class="btn-ghost px-2 py-1 text-xs"
+                              onClick={() => void useAuthKey(player)}>
+                              {t('players.useAuthKey')}
+                            </button>
+                          </>
                         }>
                         <button
                           class="btn-ghost px-2 py-1 text-xs"
-                          onClick={() => void resetTotp(player)}>
-                          Reset 2FA
+                          onClick={() => void resetAuthKey(player)}>
+                          {t('players.resetAuthKey')}
                         </button>
                       </Show>
                       <button
                         class="btn-danger"
                         onClick={() => void remove(player)}>
-                        Supprimer
+                        {t('delete')}
                       </button>
                     </div>
                   </td>
@@ -251,8 +350,7 @@ export default function Players() {
         </table>
         <Show when={(list() ?? []).length === 0}>
           <p class="px-4 py-6 text-center text-sm text-slate-400">
-            Aucun joueur. Créez les comptes que vos joueurs utiliseront dans le
-            launcher.
+            {t('players.empty')}
           </p>
         </Show>
       </div>

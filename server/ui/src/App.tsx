@@ -3,13 +3,25 @@ import {
   createContext,
   createResource,
   createSignal,
+  onCleanup,
   Show,
   useContext,
   type JSX,
   type Resource,
 } from 'solid-js';
+import { Dynamic } from 'solid-js/web';
+
+import {
+  FiChevronDown,
+  FiGlobe,
+  FiLogOut,
+  FiMonitor,
+  FiMoon,
+  FiSun,
+} from 'solid-icons/fi';
 
 import { api, post, type Me } from './api';
+import { locale, setLocale, t, type Locale } from './i18n';
 import Account from './pages/Account';
 import ApiKeys from './pages/ApiKeys';
 import InstanceDetail from './pages/InstanceDetail';
@@ -17,6 +29,7 @@ import Instances from './pages/Instances';
 import Login from './pages/Login';
 import Players from './pages/Players';
 import Users from './pages/Users';
+import { setTheme, theme, type Theme } from './theme';
 
 interface Session {
   me: Resource<Me | null>;
@@ -31,53 +44,196 @@ export function useSession(): Session {
 }
 
 function Sidebar(props: { me: Me }) {
-  const session = useSession();
-  const navigate = useNavigate();
   const link =
     'block rounded-md px-3 py-2 text-sm text-slate-300 transition hover:bg-panel hover:text-accent';
 
   return (
     <aside class="flex w-56 shrink-0 flex-col border-r border-edge bg-panel/50 p-4">
       <div class="mb-6 flex items-center gap-2 px-2">
-        <img src="/logo.svg" alt="anvil" class="h-6 w-6" />
+        <img src="/logo.svg" alt="Anvil" class="h-6 w-6" />
         <span class="text-lg font-semibold text-slate-100">
-          anvil <span class="text-accent">server</span>
+          Anvil <span class="text-accent">Server</span>
         </span>
       </div>
       <nav class="flex flex-col gap-1">
         <A href="/" end class={link} activeClass="bg-panel text-accent">
-          Instances
+          {t('nav.instances')}
         </A>
         <A href="/players" class={link} activeClass="bg-panel text-accent">
-          Joueurs
+          {t('nav.players')}
         </A>
         <Show when={props.me.role === 'admin'}>
           <A href="/users" class={link} activeClass="bg-panel text-accent">
-            Utilisateurs
+            {t('nav.users')}
           </A>
           <A href="/keys" class={link} activeClass="bg-panel text-accent">
-            Clés API
+            {t('nav.apiKeys')}
           </A>
         </Show>
         <A href="/account" class={link} activeClass="bg-panel text-accent">
-          Mon compte
+          {t('nav.account')}
         </A>
       </nav>
-      <div class="mt-auto border-t border-edge pt-4">
-        <p class="px-2 text-sm text-slate-300">{props.me.username}</p>
-        <p class="px-2 text-xs text-slate-500">
-          {props.me.role === 'admin' ? 'Administrateur' : 'Utilisateur'}
-        </p>
-        <button
-          class="btn-ghost mt-3 w-full justify-center"
-          onClick={async () => {
-            await session.logout();
-            navigate('/', { replace: true });
-          }}>
-          Déconnexion
-        </button>
-      </div>
     </aside>
+  );
+}
+
+const THEME_ICON: Record<Theme, (props: { class?: string }) => JSX.Element> = {
+  dark: FiMoon,
+  light: FiSun,
+  system: FiMonitor,
+};
+
+function usePopover() {
+  const [open, setOpen] = createSignal(false);
+  let ref: HTMLDivElement | undefined;
+
+  const onDocClick = (e: MouseEvent) => {
+    if (ref && !ref.contains(e.target as Node)) setOpen(false);
+  };
+  document.addEventListener('click', onDocClick);
+  onCleanup(() => document.removeEventListener('click', onDocClick));
+
+  return {
+    open,
+    setOpen,
+    setRef: (el: HTMLDivElement) => (ref = el),
+  };
+}
+
+const iconBtn =
+  'flex items-center gap-1.5 rounded-md p-2 text-sm text-slate-300 transition hover:bg-panel';
+
+function ThemeMenu() {
+  const { open, setOpen, setRef } = usePopover();
+
+  return (
+    <div class="relative" ref={setRef}>
+      <button
+        class={iconBtn}
+        title={t('menu.theme')}
+        onClick={() => setOpen(!open())}>
+        <Dynamic component={THEME_ICON[theme()]} />
+      </button>
+      <Show when={open()}>
+        <div class="absolute right-0 z-10 mt-2 w-40 rounded-lg border border-edge bg-panel p-1 shadow-lg">
+          {(['dark', 'light', 'system'] as Theme[]).map((opt) => (
+            <button
+              class={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition ${
+                theme() === opt
+                  ? 'text-accent'
+                  : 'text-slate-300 hover:bg-surface hover:text-accent'
+              }`}
+              onClick={() => {
+                setTheme(opt);
+                setOpen(false);
+              }}>
+              <Dynamic component={THEME_ICON[opt]} /> {t(`theme.${opt}`)}
+            </button>
+          ))}
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function LanguageMenu() {
+  const { open, setOpen, setRef } = usePopover();
+  const langs: Array<{ code: Locale; label: string }> = [
+    { code: 'en', label: 'English' },
+    { code: 'fr', label: 'Français' },
+  ];
+
+  return (
+    <div class="relative" ref={setRef}>
+      <button
+        class={iconBtn}
+        title={t('menu.language')}
+        onClick={() => setOpen(!open())}>
+        <FiGlobe />
+        <span class="text-xs font-semibold uppercase">{locale()}</span>
+      </button>
+      <Show when={open()}>
+        <div class="absolute right-0 z-10 mt-2 w-36 rounded-lg border border-edge bg-panel p-1 shadow-lg">
+          {langs.map((l) => (
+            <button
+              class={`block w-full rounded-md px-3 py-1.5 text-left text-sm transition ${
+                locale() === l.code
+                  ? 'text-accent'
+                  : 'text-slate-300 hover:bg-surface hover:text-accent'
+              }`}
+              onClick={() => {
+                setLocale(l.code);
+                setOpen(false);
+              }}>
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function UserMenu(props: { me: Me }) {
+  const session = useSession();
+  const navigate = useNavigate();
+  const { open, setOpen, setRef } = usePopover();
+
+  const item =
+    'block w-full rounded-md px-3 py-1.5 text-left text-sm text-slate-300 transition hover:bg-surface hover:text-accent';
+
+  return (
+    <div class="relative" ref={setRef}>
+      <button
+        class="flex items-center gap-2 rounded-md py-1.5 pr-1 pl-1.5 transition hover:bg-panel"
+        onClick={() => setOpen(!open())}>
+        <span class="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-sm font-semibold text-black uppercase">
+          {props.me.username.slice(0, 1)}
+        </span>
+        <span class="hidden text-left md:block">
+          <span class="block text-sm text-slate-200">{props.me.username}</span>
+        </span>
+        <FiChevronDown class="hidden text-slate-500 md:block" />
+      </button>
+
+      <Show when={open()}>
+        <div class="absolute right-0 z-10 mt-2 w-52 rounded-lg border border-edge bg-panel p-2 shadow-lg">
+          <div class="px-3 py-1">
+            <p class="text-sm text-slate-200">{props.me.username}</p>
+            <p class="text-xs text-slate-500">
+              {props.me.role === 'admin' ? t('role.admin') : t('role.user')}
+            </p>
+          </div>
+          <div class="my-1 border-t border-edge" />
+          <A href="/account" class={item} onClick={() => setOpen(false)}>
+            {t('nav.account')}
+          </A>
+          <div class="my-1 border-t border-edge" />
+          <button
+            class={`${item} flex items-center gap-2 text-red-400 hover:text-red-300`}
+            onClick={async () => {
+              await session.logout();
+              navigate('/', { replace: true });
+            }}>
+            <FiLogOut /> {t('logout')}
+          </button>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function Header(props: { me: Me }) {
+  return (
+    <header class="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-edge bg-panel/70 px-6 py-3 backdrop-blur">
+      <div />
+      <div class="flex items-center gap-1">
+        <ThemeMenu />
+        <LanguageMenu />
+        <UserMenu me={props.me} />
+      </div>
+    </header>
   );
 }
 
@@ -86,12 +242,15 @@ function Shell(props: { children?: JSX.Element }) {
   return (
     <Show
       when={!session.me.loading}
-      fallback={<div class="p-8 text-slate-400">Chargement…</div>}>
+      fallback={<div class="p-8 text-slate-400">{t('loading')}</div>}>
       <Show when={session.me()} fallback={<Login />}>
         {(me) => (
           <div class="flex min-h-screen">
             <Sidebar me={me()} />
-            <main class="min-w-0 flex-1 p-8">{props.children}</main>
+            <div class="flex min-w-0 flex-1 flex-col">
+              <Header me={me()} />
+              <main class="min-w-0 flex-1 p-8">{props.children}</main>
+            </div>
           </div>
         )}
       </Show>

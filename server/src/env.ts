@@ -10,4 +10,9 @@ export const env = {
   publicUrl: (process.env.PUBLIC_URL ?? '').replace(/\/+$/, ''),
   adminUsername: process.env.ANVIL_ADMIN_USERNAME ?? 'admin',
   adminPassword: process.env.ANVIL_ADMIN_PASSWORD ?? 'admin',
+  /** Chemins optionnels vers un certificat TLS (ex : généré par mkcert),
+   *  utile pour tester des fonctionnalités qui exigent un contexte sécurisé
+   *  (WebAuthn) sur un nom d'hôte local autre que localhost/127.0.0.1. */
+  tlsCert: process.env.TLS_CERT ?? '',
+  tlsKey: process.env.TLS_KEY ?? '',
 };

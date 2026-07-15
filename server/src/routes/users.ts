@@ -13,6 +13,7 @@ function publicUser(u: UserDoc) {
     username: u.username,
     role: u.role,
     totpEnabled: u.totpEnabled,
+    passkeyCount: u.passkeys.length,
     createdAt: u.createdAt,
   };
 }
@@ -53,6 +54,8 @@ userRoutes.post('/', async (c) => {
     role,
     totpSecret: null,
     totpEnabled: false,
+    passkeys: [],
+    currentChallenge: null,
     createdAt: new Date(),
   };
   await users().insertOne(doc);
@@ -100,6 +103,17 @@ userRoutes.post('/:id/totp/reset', async (c) => {
     { $set: { totpSecret: null, totpEnabled: false } },
   );
   if (result.matchedCount === 0) return c.json({ error: 'not_found' }, 404);
+  return c.json({ ok: true });
+});
+
+// ── Passkeys WebAuthn ────────────────────────────────────────────────────────
+
+userRoutes.post('/:id/passkeys/reset', async (c) => {
+  const id = parseId(c.req.param('id'));
+  if (!id) return c.json({ error: 'not_found' }, 404);
+  const result = await users().updateOne({ _id: id }, { $set: { passkeys: [] } });
+  if (result.matchedCount === 0) return c.json({ error: 'not_found' }, 404);
+  await deleteSubjectSessions(id);
   return c.json({ ok: true });
 });
 

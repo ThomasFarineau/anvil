@@ -8,6 +8,51 @@
   --color-accent-soft: #f0a366;
 }
 
+:root,
+[data-theme='dark'] {
+  --color-surface: #0e1116;
+  --color-panel: #161b22;
+  --color-edge: #2b3240;
+  --color-accent: #e8833a;
+  --color-accent-soft: #f0a366;
+}
+
+[data-theme='light'] {
+  --color-surface: #f6f7f9;
+  --color-panel: #ffffff;
+  --color-edge: #e2e5eb;
+  --color-accent: #c96a24;
+  --color-accent-soft: #a9551a;
+}
+
+[data-theme='light'] .text-slate-100 {
+  color: #0f172a;
+}
+[data-theme='light'] .text-slate-200 {
+  color: #1e293b;
+}
+[data-theme='light'] .text-slate-300 {
+  color: #334155;
+}
+[data-theme='light'] .text-slate-400 {
+  color: #64748b;
+}
+[data-theme='light'] .text-slate-500 {
+  color: #94a3b8;
+}
+[data-theme='light'] .text-red-400 {
+  color: #dc2626;
+}
+[data-theme='light'] .border-red-900 {
+  border-color: #fecaca;
+}
+[data-theme='light'] .bg-red-950 {
+  background-color: #fef2f2;
+}
+[data-theme='light'] .text-emerald-400 {
+  color: #059669;
+}
+
 body {
   @apply bg-surface text-slate-200 antialiased;
 }

@@ -1,8 +1,11 @@
+import { startRegistration } from '@simplewebauthn/browser';
 import QRCode from 'qrcode';
-import { createSignal, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 
 import { useSession } from '../App';
-import { errorMessage, post } from '../api';
+import { confirmDialog, promptDialog } from '../alerts';
+import { del, errorMessage, post, type Passkey } from '../api';
+import { t } from '../i18n';
 
 export default function Account() {
   const session = useSession();
@@ -29,7 +32,7 @@ export default function Account() {
       await post('/api/auth/password', { current: current(), next: next() });
       setCurrent('');
       setNext('');
-      flash('Mot de passe modifié.');
+      flash(t('account.passwordChanged'));
     } catch (error_) {
       fail(error_);
     }
@@ -59,7 +62,7 @@ export default function Account() {
       await post('/api/auth/totp/enable', { code: totpCode() });
       setSetup(null);
       setTotpCode('');
-      flash('2FA activée.');
+      flash(t('account.totpEnabled'));
       session.refetch();
     } catch (error_) {
       fail(error_);
@@ -71,7 +74,39 @@ export default function Account() {
     try {
       await post('/api/auth/totp/disable', { code: totpCode() });
       setTotpCode('');
-      flash('2FA désactivée.');
+      flash(t('account.totpDisabled'));
+      session.refetch();
+    } catch (error_) {
+      fail(error_);
+    }
+  };
+
+  // ── Passkeys ─────────────────────────────────────────────────────────────
+
+  const addPasskey = async () => {
+    try {
+      const { defaultName, ...options } = await post<
+        Record<string, unknown> & { defaultName: string }
+      >('/api/auth/passkey/register/options');
+      const response = await startRegistration({ optionsJSON: options as never });
+      const name =
+        (await promptDialog(t('account.passkeyNamePrompt'), {
+          defaultValue: defaultName,
+        })) || defaultName;
+      await post('/api/auth/passkey/register/verify', { response, name });
+      flash(t('account.passkeyAdded'));
+      session.refetch();
+    } catch (error_) {
+      fail(error_);
+    }
+  };
+
+  const removePasskey = async (passkey: Passkey) => {
+    if (!(await confirmDialog(t('account.confirmRemovePasskey', { name: passkey.name }), { danger: true })))
+      return;
+    try {
+      await del(`/api/auth/passkey/${passkey.id}`);
+      flash(t('account.passkeyRemoved'));
       session.refetch();
     } catch (error_) {
       fail(error_);
@@ -80,7 +115,9 @@ export default function Account() {
 
   return (
     <div class="mx-auto max-w-2xl">
-      <h1 class="mb-6 text-2xl font-semibold text-slate-100">Mon compte</h1>
+      <h1 class="mb-6 text-2xl font-semibold text-slate-100">
+        {t('account.title')}
+      </h1>
 
       <Show when={message()}>
         <p class="mb-4 text-sm text-emerald-400">{message()}</p>
@@ -89,10 +126,46 @@ export default function Account() {
         <p class="mb-4 text-sm text-red-400">{error()}</p>
       </Show>
 
+      <section class="panel mb-6">
+        <h2 class="mb-1 font-medium text-slate-100">
+          {t('account.passkeysTitle')}
+        </h2>
+        <p class="mb-4 text-sm text-slate-400">{t('account.passkeysIntro')}</p>
+
+        <Show
+          when={(session.me()?.passkeys.length ?? 0) > 0}
+          fallback={
+            <p class="mb-4 text-sm text-slate-500">
+              {t('account.noPasskeys')}
+            </p>
+          }>
+          <ul class="mb-4 divide-y divide-edge">
+            <For each={session.me()?.passkeys}>
+              {(passkey) => (
+                <li class="flex items-center justify-between py-2 text-sm">
+                  <span class="text-slate-200">{passkey.name}</span>
+                  <button
+                    class="btn-danger px-2 py-1 text-xs"
+                    onClick={() => void removePasskey(passkey)}>
+                    {t('account.removePasskey')}
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+
+        <button class="btn" onClick={() => void addPasskey()}>
+          {t('account.addPasskey')}
+        </button>
+      </section>
+
       <form class="panel mb-6" onSubmit={changePassword}>
-        <h2 class="mb-4 font-medium text-slate-100">Changer le mot de passe</h2>
+        <h2 class="mb-4 font-medium text-slate-100">
+          {t('account.changePassword')}
+        </h2>
         <div class="mb-4">
-          <label class="label">Mot de passe actuel</label>
+          <label class="label">{t('account.currentPassword')}</label>
           <input
             class="input"
             type="password"
@@ -102,7 +175,7 @@ export default function Account() {
           />
         </div>
         <div class="mb-4">
-          <label class="label">Nouveau mot de passe (8 min.)</label>
+          <label class="label">{t('account.newPassword')}</label>
           <input
             class="input"
             type="password"
@@ -111,12 +184,12 @@ export default function Account() {
             autocomplete="new-password"
           />
         </div>
-        <button class="btn">Modifier</button>
+        <button class="btn">{t('account.update')}</button>
       </form>
 
       <section class="panel">
         <h2 class="mb-2 font-medium text-slate-100">
-          Authentification à deux facteurs (TOTP)
+          {t('account.totpTitle')}
         </h2>
 
         <Show
@@ -127,29 +200,27 @@ export default function Account() {
               fallback={
                 <div>
                   <p class="mb-4 text-sm text-slate-400">
-                    Protégez votre compte avec une application
-                    d'authentification (Google Authenticator, Aegis…). La 2FA
-                    s'applique aussi à la connexion depuis le launcher.
+                    {t('account.totpIntro')}
                   </p>
                   <button class="btn" onClick={() => void startSetup()}>
-                    Activer la 2FA
+                    {t('account.enableTotp')}
                   </button>
                 </div>
               }>
               {(data) => (
                 <form onSubmit={enableTotp}>
                   <p class="mb-4 text-sm text-slate-400">
-                    Scannez ce QR code puis saisissez le code généré :
+                    {t('account.scanQr')}
                   </p>
                   <img
                     src={data().qr}
-                    alt="QR code TOTP"
+                    alt="TOTP QR code"
                     class="mb-3 rounded-md bg-white p-2"
                     width={192}
                     height={192}
                   />
                   <p class="mb-4 text-xs text-slate-500">
-                    Secret : <code>{data().secret}</code>
+                    {t('account.secret')}: <code>{data().secret}</code>
                   </p>
                   <div class="flex gap-2">
                     <input
@@ -159,12 +230,12 @@ export default function Account() {
                       value={totpCode()}
                       onInput={(e) => setTotpCode(e.currentTarget.value)}
                     />
-                    <button class="btn">Confirmer</button>
+                    <button class="btn">{t('account.confirm')}</button>
                     <button
                       type="button"
                       class="btn-ghost"
                       onClick={() => setSetup(null)}>
-                      Annuler
+                      {t('account.cancel')}
                     </button>
                   </div>
                 </form>
@@ -173,7 +244,7 @@ export default function Account() {
           }>
           <form onSubmit={disableTotp}>
             <p class="mb-4 text-sm text-emerald-400">
-              La 2FA est activée sur ce compte.
+              {t('account.totpEnabledOnAccount')}
             </p>
             <div class="flex gap-2">
               <input
@@ -183,7 +254,7 @@ export default function Account() {
                 value={totpCode()}
                 onInput={(e) => setTotpCode(e.currentTarget.value)}
               />
-              <button class="btn-danger">Désactiver la 2FA</button>
+              <button class="btn-danger">{t('account.disableTotp')}</button>
             </div>
           </form>
         </Show>

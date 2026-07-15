@@ -11,9 +11,13 @@
     "test": "bun test src"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "hono": "^4.12.30",
     "mongodb": "^6.20.0",
-    "otpauth": "^9.5.1"
+    "otpauth": "^9.5.1",
+    "solid-icons": "^1.2.0",
+    "sweetalert2": "^11.26.25"
   },
   "devDependencies": {
     "@solidjs/router": "^0.16.1",

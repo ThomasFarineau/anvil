@@ -1,6 +1,7 @@
 import { A, useNavigate, useParams } from '@solidjs/router';
 import { createResource, createSignal, For, Show } from 'solid-js';
 
+import { confirmDialog } from '../alerts';
 import {
   api,
   del,
@@ -10,6 +11,7 @@ import {
   upload,
   type Instance,
 } from '../api';
+import { t } from '../i18n';
 
 export default function InstanceDetail() {
   const params = useParams();
@@ -44,7 +46,7 @@ export default function InstanceDetail() {
         server_ip: String(form.get('server_ip') ?? ''),
         server_port: Number(form.get('server_port') ?? 25565),
       });
-      flash('Instance enregistrée.');
+      flash(t('instanceDetail.saved'));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -60,7 +62,7 @@ export default function InstanceDetail() {
     form.append('file', file);
     try {
       await upload(`/api/instances/${params.id}/mods`, form);
-      flash(`Mod « ${file.name} » ajouté.`);
+      flash(t('instanceDetail.modAdded', { name: file.name }));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -74,7 +76,7 @@ export default function InstanceDetail() {
     try {
       await upload(`/api/instances/${params.id}/mods`, form);
       setModUrl('');
-      flash('Mod ajouté depuis URL.');
+      flash(t('instanceDetail.modAddedUrl'));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -107,7 +109,7 @@ export default function InstanceDetail() {
       setCfgPath('');
       const input = cfgFileInput();
       if (input) input.value = '';
-      flash('Fichier envoyé.');
+      flash(t('instanceDetail.fileSent'));
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -128,7 +130,11 @@ export default function InstanceDetail() {
   const toggleEnabled = async (current: Instance) => {
     try {
       await put(`/api/instances/${params.id}`, { enabled: !current.enabled });
-      flash(current.enabled ? 'Instance désactivée.' : 'Instance activée.');
+      flash(
+        current.enabled
+          ? t('instanceDetail.disabledMsg')
+          : t('instanceDetail.enabledMsg'),
+      );
       void refetch();
     } catch (error_) {
       fail(error_);
@@ -136,7 +142,7 @@ export default function InstanceDetail() {
   };
 
   const removeInstance = async () => {
-    if (!confirm(`Supprimer l'instance « ${params.id} » et ses fichiers ?`)) {
+    if (!(await confirmDialog(t('instanceDetail.confirmDelete', { id: params.id ?? '' }), { danger: true }))) {
       return;
     }
     await del(`/api/instances/${params.id}`).catch(fail);
@@ -144,20 +150,20 @@ export default function InstanceDetail() {
   };
 
   return (
-    <Show when={inst()} fallback={<p class="text-slate-400">Chargement…</p>}>
+    <Show when={inst()} fallback={<p class="text-slate-400">{t('loading')}</p>}>
       {(instance) => (
         <div class="mx-auto max-w-4xl">
           <div class="mb-6 flex items-center justify-between">
             <div>
               <A href="/" class="text-sm text-slate-400 hover:text-accent">
-                ← Instances
+                {t('instanceDetail.back')}
               </A>
               <h1 class="text-2xl font-semibold text-slate-100">
                 {instance().name}{' '}
                 <code class="text-base text-accent-soft">{instance()._id}</code>
                 <Show when={!instance().enabled}>
                   <span class="ml-2 align-middle text-sm text-slate-500">
-                    (désactivée)
+                    {t('instanceDetail.disabledSuffix')}
                   </span>
                 </Show>
               </h1>
@@ -166,10 +172,12 @@ export default function InstanceDetail() {
               <button
                 class="btn-ghost"
                 onClick={() => void toggleEnabled(instance())}>
-                {instance().enabled ? 'Désactiver' : 'Activer'}
+                {instance().enabled
+                  ? t('instanceDetail.disable')
+                  : t('instanceDetail.enable')}
               </button>
               <button class="btn-danger" onClick={removeInstance}>
-                Supprimer l'instance
+                {t('instanceDetail.delete')}
               </button>
             </div>
           </div>
@@ -182,13 +190,15 @@ export default function InstanceDetail() {
           </Show>
 
           <form class="panel mb-6 grid grid-cols-2 gap-4" onSubmit={saveFields}>
-            <h2 class="col-span-2 font-medium text-slate-100">Général</h2>
+            <h2 class="col-span-2 font-medium text-slate-100">
+              {t('instanceDetail.general')}
+            </h2>
             <div>
-              <label class="label">Nom affiché</label>
+              <label class="label">{t('instanceDetail.name')}</label>
               <input class="input" name="name" value={instance().name} />
             </div>
             <div>
-              <label class="label">Version Minecraft</label>
+              <label class="label">{t('instanceDetail.mcVersion')}</label>
               <input
                 class="input"
                 name="mc_version"
@@ -196,7 +206,7 @@ export default function InstanceDetail() {
               />
             </div>
             <div>
-              <label class="label">Loader</label>
+              <label class="label">{t('instanceDetail.loader')}</label>
               <select class="input" name="loader" value={instance().loader}>
                 <option value="">Vanilla</option>
                 <option value="fabric">Fabric</option>
@@ -206,7 +216,7 @@ export default function InstanceDetail() {
               </select>
             </div>
             <div>
-              <label class="label">Version du loader</label>
+              <label class="label">{t('instanceDetail.loaderVersion')}</label>
               <input
                 class="input"
                 name="loader_version"
@@ -215,7 +225,7 @@ export default function InstanceDetail() {
               />
             </div>
             <div>
-              <label class="label">IP serveur (auto-connexion)</label>
+              <label class="label">{t('instanceDetail.serverIp')}</label>
               <input
                 class="input"
                 name="server_ip"
@@ -223,7 +233,7 @@ export default function InstanceDetail() {
               />
             </div>
             <div>
-              <label class="label">Port serveur</label>
+              <label class="label">{t('instanceDetail.serverPort')}</label>
               <input
                 class="input"
                 name="server_port"
@@ -232,13 +242,13 @@ export default function InstanceDetail() {
               />
             </div>
             <div class="col-span-2">
-              <button class="btn">Enregistrer</button>
+              <button class="btn">{t('instanceDetail.save')}</button>
             </div>
           </form>
 
           <section class="panel mb-6">
             <h2 class="mb-4 font-medium text-slate-100">
-              Mods ({instance().mods.length})
+              {t('instanceDetail.mods', { count: instance().mods.length })}
             </h2>
             <div class="mb-4 flex flex-wrap gap-2">
               <input
@@ -253,7 +263,7 @@ export default function InstanceDetail() {
                 }}
               />
               <button class="btn" onClick={() => modFileInput()?.click()}>
-                Uploader un .jar
+                {t('instanceDetail.uploadJar')}
               </button>
               <input
                 class="input max-w-xs flex-1"
@@ -262,12 +272,16 @@ export default function InstanceDetail() {
                 onInput={(e) => setModUrl(e.currentTarget.value)}
               />
               <button class="btn-ghost" onClick={() => void addModUrl()}>
-                Ajouter depuis URL
+                {t('instanceDetail.addFromUrl')}
               </button>
             </div>
             <Show
               when={instance().mods.length > 0}
-              fallback={<p class="text-sm text-slate-400">Aucun mod.</p>}>
+              fallback={
+                <p class="text-sm text-slate-400">
+                  {t('instanceDetail.noMods')}
+                </p>
+              }>
               <ul class="divide-y divide-edge">
                 <For each={instance().mods}>
                   {(mod) => (
@@ -276,13 +290,15 @@ export default function InstanceDetail() {
                         <p class="text-sm text-slate-200">{mod.name}</p>
                         <p class="text-xs text-slate-500">
                           {mod.file_name} · {formatSize(mod.size)} ·{' '}
-                          {mod.url ? 'URL externe' : 'hébergé ici'}
+                          {mod.url
+                            ? t('instanceDetail.modSourceExternal')
+                            : t('instanceDetail.modSourceHosted')}
                         </p>
                       </div>
                       <button
                         class="btn-danger"
                         onClick={() => void removeMod(mod.file_name)}>
-                        Supprimer
+                        {t('delete')}
                       </button>
                     </li>
                   )}
@@ -293,28 +309,30 @@ export default function InstanceDetail() {
 
           <section class="panel">
             <h2 class="mb-1 font-medium text-slate-100">
-              Fichiers de config ({instance().files.length})
+              {t('instanceDetail.filesTitle', { count: instance().files.length })}
             </h2>
             <p class="mb-4 text-sm text-slate-400">
-              Déployés dans le dossier de l'instance au setup du launcher (ex :
-              <code class="ml-1 text-accent-soft">config/monmod.toml</code>).
+              {t('instanceDetail.filesHint')}{' '}
+              <code class="ml-1 text-accent-soft">config/mymod.toml</code>).
             </p>
             <div class="mb-4 flex flex-wrap items-center gap-2">
               <input ref={setCfgFileInput} type="file" class="input max-w-60" />
               <input
                 class="input max-w-xs flex-1"
-                placeholder="config/monmod.toml (chemin cible)"
+                placeholder={t('instanceDetail.pathPlaceholder')}
                 value={cfgPath()}
                 onInput={(e) => setCfgPath(e.currentTarget.value)}
               />
               <button class="btn" onClick={() => void uploadCfg()}>
-                Envoyer
+                {t('instanceDetail.send')}
               </button>
             </div>
             <Show
               when={instance().files.length > 0}
               fallback={
-                <p class="text-sm text-slate-400">Aucun fichier de config.</p>
+                <p class="text-sm text-slate-400">
+                  {t('instanceDetail.noFiles')}
+                </p>
               }>
               <ul class="divide-y divide-edge">
                 <For each={instance().files}>
@@ -329,7 +347,7 @@ export default function InstanceDetail() {
                       <button
                         class="btn-danger"
                         onClick={() => void removeCfg(file.path)}>
-                        Supprimer
+                        {t('delete')}
                       </button>
                     </li>
                   )}

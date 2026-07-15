@@ -3,6 +3,24 @@ import { MongoClient, ObjectId, type Collection, type Db } from 'mongodb';
 import { env } from './env';
 import { hashPassword } from './password';
 
+/** Méthode de sécurisation d'un compte joueur (mutuellement exclusives) :
+ *  mot de passe (+ 2FA TOTP optionnelle), ou clé d'authentification. */
+export type AuthMethod = 'password' | 'authkey';
+
+/** Passkey WebAuthn enregistrée sur un compte web (additive, en plus du mot
+ *  de passe : ce n'est pas une méthode exclusive comme les clés joueur). */
+export interface PasskeyCredential {
+  /** ID de credential WebAuthn (base64url). */
+  id: string;
+  /** Clé publique COSE (base64url). */
+  publicKey: string;
+  counter: number;
+  transports?: string[];
+  /** Nom donné par l'utilisateur (ex : "Windows Hello", "YubiKey"). */
+  name: string;
+  createdAt: Date;
+}
+
 /** Compte web : accès à l'interface d'administration. */
 export interface UserDoc {
   _id: ObjectId;
@@ -11,6 +29,9 @@ export interface UserDoc {
   role: 'admin' | 'user';
   totpSecret: string | null;
   totpEnabled: boolean;
+  passkeys: PasskeyCredential[];
+  /** Challenge WebAuthn en cours (enregistrement), le temps de la ronde. */
+  currentChallenge: string | null;
   createdAt: Date;
 }
 
@@ -24,6 +45,8 @@ export interface PlayerDoc {
   uuid: string;
   totpSecret: string | null;
   totpEnabled: boolean;
+  authMethod: AuthMethod;
+  authKey: string | null;
   createdAt: Date;
 }
 
@@ -104,10 +127,28 @@ export async function connectDb(): Promise<void> {
   db = client.db();
 
   await users().createIndex({ username: 1 }, { unique: true });
+  await users().createIndex({ 'passkeys.id': 1 }, { sparse: true });
   await players().createIndex({ username: 1 }, { unique: true });
+  await players().createIndex({ authKey: 1 }, { unique: true, sparse: true });
   await sessions().createIndex({ token: 1 }, { unique: true });
   await sessions().createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   await apiKeys().createIndex({ key: 1 }, { unique: true });
+
+  // Migration : comptes web créés avant l'introduction des passkeys.
+  await users().updateMany(
+    { passkeys: { $exists: false } },
+    { $set: { passkeys: [], currentChallenge: null } },
+  );
+  // Migration : anciens comptes web avec l'ancien système de clé d'auth.
+  await users().updateMany(
+    { authMethod: { $exists: true } },
+    { $unset: { authMethod: '', authKey: '' } },
+  );
+  // Migration : comptes joueur créés avant l'introduction des clés d'auth.
+  await players().updateMany(
+    { authMethod: { $exists: false } },
+    { $set: { authMethod: 'password', authKey: null } },
+  );
 }
 
 /** Crée le compte admin initial s'il n'existe aucun administrateur. */
@@ -121,6 +162,8 @@ export async function bootstrapAdmin(): Promise<void> {
     role: 'admin',
     totpSecret: null,
     totpEnabled: false,
+    passkeys: [],
+    currentChallenge: null,
     createdAt: new Date(),
   });
   console.log(

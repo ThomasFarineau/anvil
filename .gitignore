@@ -4,3 +4,4 @@ dist/
 *.iml
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+server/certs/

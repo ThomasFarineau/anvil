@@ -2,6 +2,7 @@ import { A } from '@solidjs/router';
 import { createResource, createSignal, For, Show } from 'solid-js';
 
 import { api, errorMessage, post, type Instance } from '../api';
+import { t } from '../i18n';
 
 export default function Instances() {
   const [list, { refetch }] = createResource(() =>
@@ -38,34 +39,36 @@ export default function Instances() {
   return (
     <div class="mx-auto max-w-4xl">
       <div class="mb-6 flex items-center justify-between">
-        <h1 class="text-2xl font-semibold text-slate-100">Instances</h1>
+        <h1 class="text-2xl font-semibold text-slate-100">
+          {t('instances.title')}
+        </h1>
         <button class="btn" onClick={() => setShowForm(!showForm())}>
-          + Nouvelle instance
+          {t('instances.new')}
         </button>
       </div>
 
       <Show when={showForm()}>
         <form class="panel mb-6 grid grid-cols-2 gap-4" onSubmit={create}>
           <div>
-            <label class="label">ID (utilisé dans config.json)</label>
+            <label class="label">{t('instances.form.id')}</label>
             <input
               class="input"
               value={id()}
               onInput={(e) => setId(e.currentTarget.value)}
-              placeholder="server-exemple"
+              placeholder="server-example"
             />
           </div>
           <div>
-            <label class="label">Nom affiché</label>
+            <label class="label">{t('instances.form.name')}</label>
             <input
               class="input"
               value={name()}
               onInput={(e) => setName(e.currentTarget.value)}
-              placeholder="Survie 1.21"
+              placeholder="Survival 1.21"
             />
           </div>
           <div>
-            <label class="label">Version Minecraft</label>
+            <label class="label">{t('instances.form.mcVersion')}</label>
             <input
               class="input"
               value={mcVersion()}
@@ -74,7 +77,7 @@ export default function Instances() {
             />
           </div>
           <div>
-            <label class="label">Loader</label>
+            <label class="label">{t('instances.form.loader')}</label>
             <select
               class="input"
               value={loader()}
@@ -90,7 +93,7 @@ export default function Instances() {
             <p class="col-span-2 text-sm text-red-400">{error()}</p>
           </Show>
           <div class="col-span-2">
-            <button class="btn">Créer</button>
+            <button class="btn">{t('instances.form.create')}</button>
           </div>
         </form>
       </Show>
@@ -99,8 +102,7 @@ export default function Instances() {
         when={(list() ?? []).length > 0}
         fallback={
           <div class="panel text-center text-slate-400">
-            Aucune instance. Créez-en une pour la référencer dans le config.json
-            du launcher.
+            {t('instances.empty')}
           </div>
         }>
         <div class="grid gap-3">
@@ -114,19 +116,21 @@ export default function Instances() {
                     {inst.name}
                     <Show when={!inst.enabled}>
                       <span class="ml-2 rounded-full border border-edge px-2 py-0.5 text-xs text-slate-500">
-                        désactivée
+                        {t('instances.disabled')}
                       </span>
                     </Show>
                   </p>
                   <p class="text-sm text-slate-400">
                     <code class="text-accent-soft">{inst._id}</code> · MC{' '}
                     {inst.mc_version}
-                    {inst.loader ? ` · ${inst.loader}` : ' · vanilla'}
+                    {inst.loader
+                      ? ` · ${inst.loader}`
+                      : ` · ${t('instances.vanilla')}`}
                   </p>
                 </div>
                 <div class="text-right text-sm text-slate-400">
-                  <p>{inst.mods.length} mod(s)</p>
-                  <p>{inst.files.length} fichier(s) de config</p>
+                  <p>{t('instances.mods', { count: inst.mods.length })}</p>
+                  <p>{t('instances.files', { count: inst.files.length })}</p>
                 </div>
               </A>
             )}

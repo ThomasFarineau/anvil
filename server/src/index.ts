@@ -15,7 +15,8 @@ import { userRoutes } from './routes/users';
 
 const UI_DIST = fileURLToPath(new URL('../ui/dist/', import.meta.url));
 
-export const app = new Hono();
+export type Bindings = { server: Bun.Server<undefined> };
+export const app = new Hono<{ Bindings: Bindings }>();
 
 app.route('/api/auth', authRoutes);
 app.route('/api/users', userRoutes);
@@ -46,8 +47,17 @@ app.get('*', async (c) => {
 async function main() {
   await connectDb();
   await bootstrapAdmin();
-  Bun.serve({ port: env.port, fetch: app.fetch });
-  console.log(`[anvil-server] listening on http://0.0.0.0:${env.port}`);
+  const tls =
+    env.tlsCert && env.tlsKey
+      ? { cert: Bun.file(env.tlsCert), key: Bun.file(env.tlsKey) }
+      : undefined;
+  Bun.serve({
+    port: env.port,
+    tls,
+    fetch: (request, server) => app.fetch(request, { server }),
+  });
+  const scheme = tls ? 'https' : 'http';
+  console.log(`[anvil-server] listening on ${scheme}://0.0.0.0:${env.port}`);
 }
 
 if (import.meta.main) {

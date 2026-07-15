@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 export class ApiError extends Error {
   constructor(
     public code: string,
@@ -7,10 +9,19 @@ export class ApiError extends Error {
   }
 }
 
+export type AuthMethod = 'password' | 'authkey';
+
+export interface Passkey {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface Me {
   username: string;
   role: 'admin' | 'user';
   totpEnabled: boolean;
+  passkeys: Passkey[];
 }
 
 export interface UserRow {
@@ -18,6 +29,7 @@ export interface UserRow {
   username: string;
   role: 'admin' | 'user';
   totpEnabled: boolean;
+  passkeyCount: number;
   createdAt: string;
 }
 
@@ -26,6 +38,7 @@ export interface PlayerRow {
   username: string;
   uuid: string;
   totpEnabled: boolean;
+  authMethod: AuthMethod;
   createdAt: string;
 }
 
@@ -100,40 +113,49 @@ export const del = <T>(path: string) => api<T>(path, { method: 'DELETE' });
 export const upload = <T>(path: string, form: FormData) =>
   api<T>(path, { method: 'POST', body: form });
 
-const ERROR_MESSAGES: Record<string, string> = {
-  invalid_credentials: 'Identifiants invalides.',
-  totp_required: 'Code 2FA requis.',
-  invalid_code: 'Code 2FA invalide.',
-  password_too_short: 'Mot de passe trop court (8 caractères minimum).',
-  invalid_username:
-    "Nom d'utilisateur invalide (2-32 caractères, a-z 0-9 _ . -).",
-  username_taken: "Ce nom d'utilisateur existe déjà.",
-  last_admin: 'Impossible : dernier compte admin.',
-  cannot_delete_self: 'Vous ne pouvez pas supprimer votre propre compte.',
-  invalid_id: 'ID invalide (a-z, 0-9, - et _).',
-  id_taken: 'Cet ID existe déjà.',
-  missing_fields: 'Champs requis manquants.',
-  mod_exists: 'Un mod avec ce nom de fichier existe déjà.',
-  invalid_path: 'Chemin invalide.',
-  invalid_url: 'URL invalide (http/https).',
-  invalid_name: 'Nom de fichier invalide.',
-  missing_file_or_url: 'Fichier ou URL requis.',
-  unauthorized: 'Session expirée, reconnectez-vous.',
-  forbidden: 'Réservé aux administrateurs.',
-  invalid_key_name: 'Nom de clé invalide (1-64 caractères).',
-  not_enabled: "La 2FA n'est pas activée sur ce compte.",
-};
+const ERROR_KEYS = new Set([
+  'invalid_credentials',
+  'totp_required',
+  'invalid_code',
+  'password_too_short',
+  'invalid_username',
+  'username_taken',
+  'last_admin',
+  'cannot_delete_self',
+  'invalid_id',
+  'id_taken',
+  'missing_fields',
+  'mod_exists',
+  'invalid_path',
+  'invalid_url',
+  'invalid_name',
+  'missing_file_or_url',
+  'unauthorized',
+  'forbidden',
+  'invalid_key_name',
+  'not_enabled',
+  'invalid_state',
+  'invalid_passkey',
+]);
 
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    return ERROR_MESSAGES[error.code] ?? `Erreur : ${error.code}`;
+    return ERROR_KEYS.has(error.code)
+      ? t(`error.${error.code}` as 'error.invalid_credentials')
+      : t('error.generic', { code: error.code });
   }
-  return 'Erreur réseau.';
+  if (error instanceof DOMException) {
+    return t('error.generic', { code: `${error.name}: ${error.message}` });
+  }
+  if (error instanceof Error && !(error instanceof TypeError)) {
+    return t('error.generic', { code: error.message });
+  }
+  return t('error.network');
 }
 
 export function formatSize(size: number | null): string {
   if (size === null) return '—';
-  if (size < 1024) return `${size} o`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} Ko`;
-  return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
