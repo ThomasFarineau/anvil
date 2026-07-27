@@ -15,7 +15,7 @@
     "@simplewebauthn/server": "^13.3.2",
     "hono": "^4.12.30",
     "jszip": "^3.10.1",
-    "mongodb": "^6.20.0",
+    "mongodb": "^7.5.0",
     "otpauth": "^9.5.1",
     "solid-icons": "^1.2.0",
     "sweetalert2": "^11.26.25"
