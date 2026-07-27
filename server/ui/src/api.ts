@@ -1,4 +1,4 @@
-import { t } from './i18n';
+import { locale, t } from './i18n';
 
 export class ApiError extends Error {
   constructor(
@@ -55,11 +55,27 @@ export interface ModEntry {
   file_name: string;
   url: string | null;
   size: number | null;
+  source?: string;
+  updatedAt?: string;
 }
 
 export interface FileEntry {
   path: string;
   size: number;
+  source?: string;
+  updatedAt?: string;
+}
+
+export interface ModpackRef {
+  key: string;
+  platform: 'modrinth' | 'curseforge';
+  id: string;
+  url?: string | null;
+  version_id: string;
+  name: string;
+  version_name: string;
+  importedAt: string;
+  unlinkedAt: string | null;
 }
 
 export interface Instance {
@@ -73,6 +89,7 @@ export interface Instance {
   server_port: number;
   mods: ModEntry[];
   files: FileEntry[];
+  modpacks: ModpackRef[];
   updatedAt: string;
 }
 
@@ -136,6 +153,14 @@ const ERROR_KEYS = new Set([
   'not_enabled',
   'invalid_state',
   'invalid_passkey',
+  'invalid_platform',
+  'curseforge_not_configured',
+  'modpack_not_found',
+  'modpack_version_not_found',
+  'modpack_file_missing',
+  'modpack_download_failed',
+  'modpack_invalid_archive',
+  'modpack_distribution_blocked',
 ]);
 
 export function errorMessage(error: unknown): string {
@@ -158,4 +183,12 @@ export function formatSize(size: number | null): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function formatDate(date: string | undefined): string {
+  if (!date) return '—';
+  return new Date(date).toLocaleString(locale() === 'fr' ? 'fr-FR' : 'en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
 }

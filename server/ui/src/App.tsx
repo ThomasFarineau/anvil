@@ -3,7 +3,6 @@ import {
   createContext,
   createResource,
   createSignal,
-  onCleanup,
   Show,
   useContext,
   type JSX,
@@ -29,6 +28,7 @@ import Instances from './pages/Instances';
 import Login from './pages/Login';
 import Players from './pages/Players';
 import Users from './pages/Users';
+import { usePopover } from './popover';
 import { setTheme, theme, type Theme } from './theme';
 
 interface Session {
@@ -83,23 +83,6 @@ const THEME_ICON: Record<Theme, (props: { class?: string }) => JSX.Element> = {
   light: FiSun,
   system: FiMonitor,
 };
-
-function usePopover() {
-  const [open, setOpen] = createSignal(false);
-  let ref: HTMLDivElement | undefined;
-
-  const onDocClick = (e: MouseEvent) => {
-    if (ref && !ref.contains(e.target as Node)) setOpen(false);
-  };
-  document.addEventListener('click', onDocClick);
-  onCleanup(() => document.removeEventListener('click', onDocClick));
-
-  return {
-    open,
-    setOpen,
-    setRef: (el: HTMLDivElement) => (ref = el),
-  };
-}
 
 const iconBtn =
   'flex items-center gap-1.5 rounded-md p-2 text-sm text-slate-300 transition hover:bg-panel';

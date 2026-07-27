@@ -2,6 +2,14 @@ import { Hono } from 'hono';
 
 import { requireAuth, type AuthEnv } from '../auth';
 import { instances, type InstanceDoc, type ModEntry } from '../db';
+import { env } from '../env';
+import {
+  applyModpack,
+  ModpackError,
+  resolveCurseForgePack,
+  resolveModrinthPack,
+  unlinkModpack,
+} from '../modpack';
 import {
   filePath,
   INSTANCE_ID_RE,
@@ -71,6 +79,7 @@ instanceRoutes.post('/', async (c) => {
     server_port: 25565,
     mods: [],
     files: [],
+    modpacks: [],
     updatedAt: new Date(),
   };
   const error = applyFields(doc, body);
@@ -135,6 +144,7 @@ instanceRoutes.post('/:id/mods', async (c) => {
       file_name: fileName,
       url: null,
       size,
+      updatedAt: new Date(),
     };
   } else if (url) {
     if (!/^https?:\/\//.test(url)) return c.json({ error: 'invalid_url' }, 400);
@@ -151,6 +161,7 @@ instanceRoutes.post('/:id/mods', async (c) => {
       file_name: fileName,
       url,
       size: null,
+      updatedAt: new Date(),
     };
   } else {
     return c.json({ error: 'missing_file_or_url' }, 400);
@@ -177,6 +188,78 @@ instanceRoutes.delete('/:id/mods/:fileName', async (c) => {
   return c.json({ ok: true });
 });
 
+instanceRoutes.post('/:id/mods/bulk-delete', async (c) => {
+  const doc = await instances().findOne({ _id: c.req.param('id') });
+  if (!doc) return c.json({ error: 'not_found' }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  const fileNames = Array.isArray(body.file_names)
+    ? body.file_names.filter((n): n is string => typeof n === 'string')
+    : [];
+  const targets = new Set(fileNames);
+  const toRemove = doc.mods.filter((m) => targets.has(m.file_name));
+  await Promise.all(
+    toRemove
+      .filter((m) => m.url === null && safeFileName(m.file_name))
+      .map((m) => removePath(modPath(doc._id, m.file_name))),
+  );
+  doc.mods = doc.mods.filter((m) => !targets.has(m.file_name));
+  doc.updatedAt = new Date();
+  await instances().replaceOne({ _id: doc._id }, doc);
+  return c.json({ ok: true, removed: toRemove.length });
+});
+
+// ── Modpack (Modrinth / CurseForge) ─────────────────────────────────────────
+
+instanceRoutes.post('/:id/modpack/import', async (c) => {
+  const doc = await instances().findOne({ _id: c.req.param('id') });
+  if (!doc) return c.json({ error: 'not_found' }, 404);
+
+  const body = (await c.req.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  const platform = body.platform;
+  const query = typeof body.query === 'string' ? body.query.trim() : '';
+  const version = typeof body.version === 'string' ? body.version.trim() : '';
+  if (!query || !version) return c.json({ error: 'missing_fields' }, 400);
+  if (platform !== 'modrinth' && platform !== 'curseforge') {
+    return c.json({ error: 'invalid_platform' }, 400);
+  }
+  if (platform === 'curseforge' && !env.curseforgeApiKey) {
+    return c.json({ error: 'curseforge_not_configured' }, 400);
+  }
+
+  try {
+    const resolved =
+      platform === 'modrinth'
+        ? await resolveModrinthPack(query, version)
+        : await resolveCurseForgePack(query, version, env.curseforgeApiKey);
+    await applyModpack(doc, platform, resolved);
+    await instances().replaceOne({ _id: doc._id }, doc);
+    return c.json({ instance: doc, warnings: resolved.warnings });
+  } catch (error) {
+    if (error instanceof ModpackError) {
+      return c.json({ error: error.code }, 400);
+    }
+    throw error;
+  }
+});
+
+instanceRoutes.delete('/:id/modpack/:key', async (c) => {
+  const doc = await instances().findOne({ _id: c.req.param('id') });
+  if (!doc) return c.json({ error: 'not_found' }, 404);
+  const key = c.req.param('key');
+  if (!doc.modpacks.some((p) => p.key === key)) {
+    return c.json({ error: 'not_found' }, 404);
+  }
+  unlinkModpack(doc, key);
+  await instances().replaceOne({ _id: doc._id }, doc);
+  return c.json(doc);
+});
+
 // ── Fichiers de config custom ────────────────────────────────────────────────
 
 instanceRoutes.post('/:id/files', async (c) => {
@@ -194,7 +277,7 @@ instanceRoutes.post('/:id/files', async (c) => {
 
   const size = await writeUpload(filePath(doc._id, relPath), upload);
   doc.files = doc.files.filter((f) => f.path !== relPath);
-  doc.files.push({ path: relPath, size });
+  doc.files.push({ path: relPath, size, updatedAt: new Date() });
   doc.files.sort((a, b) => a.path.localeCompare(b.path));
   doc.updatedAt = new Date();
   await instances().replaceOne({ _id: doc._id }, doc);
@@ -213,4 +296,23 @@ instanceRoutes.delete('/:id/files', async (c) => {
   doc.updatedAt = new Date();
   await instances().replaceOne({ _id: doc._id }, doc);
   return c.json({ ok: true });
+});
+
+instanceRoutes.post('/:id/files/bulk-delete', async (c) => {
+  const doc = await instances().findOne({ _id: c.req.param('id') });
+  if (!doc) return c.json({ error: 'not_found' }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  const paths = Array.isArray(body.paths)
+    ? body.paths.filter((p): p is string => typeof p === 'string')
+    : [];
+  const targets = new Set(paths);
+  const toRemove = doc.files.filter((f) => targets.has(f.path));
+  await Promise.all(toRemove.map((f) => removePath(filePath(doc._id, f.path))));
+  doc.files = doc.files.filter((f) => !targets.has(f.path));
+  doc.updatedAt = new Date();
+  await instances().replaceOne({ _id: doc._id }, doc);
+  return c.json({ ok: true, removed: toRemove.length });
 });

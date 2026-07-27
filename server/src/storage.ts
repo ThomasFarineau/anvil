@@ -45,6 +45,15 @@ export async function writeUpload(dest: string, file: File): Promise<number> {
   return file.size;
 }
 
+export async function writeBuffer(
+  dest: string,
+  data: Uint8Array,
+): Promise<number> {
+  await mkdir(dirname(dest), { recursive: true });
+  await Bun.write(dest, data);
+  return data.byteLength;
+}
+
 export async function removePath(path: string): Promise<void> {
   await rm(path, { force: true, recursive: true });
 }

@@ -89,6 +89,49 @@ const en = {
   'instanceDetail.fileSent': 'File sent.',
   delete: 'Delete',
 
+  'instanceDetail.modpackTitle': 'Modpack',
+  'instanceDetail.modpackNone':
+    'This instance is configured manually. Import a modpack to auto-fill mods, loader and config files.',
+  'instanceDetail.modpackCurrent': (v: Vars) =>
+    `Imported from ${v.platform}: ${v.name} v${v.version}`,
+  'instanceDetail.modpackPlatform': 'Platform',
+  'instanceDetail.modpackQuery': 'Modpack URL or slug/ID',
+  'instanceDetail.modpackVersion': 'Version',
+  'instanceDetail.modpackImport': 'Import',
+  'instanceDetail.modpackResync': 'Re-sync',
+  'instanceDetail.modpackImporting': 'Importing…',
+  'instanceDetail.modpackUnlink': 'Unlink',
+  'instanceDetail.modpackHistory': (v: Vars) =>
+    `Previously used modpacks (${v.count})`,
+  'instanceDetail.modpackReimport': 'Import again',
+  'instanceDetail.modpackOpenLink': 'Open modpack page',
+  'instanceDetail.modpackConfirmUnlink':
+    'Unlink this modpack? Its mods and files stay on the instance but future re-syncs will no longer touch them.',
+  'instanceDetail.modpackUnlinked': 'Modpack unlinked.',
+  'instanceDetail.modpackImported': 'Modpack imported. Manual mods were kept.',
+  'instanceDetail.modpackWarnings': (v: Vars) =>
+    `${v.count} mod(s) could not be auto-imported (blocked distribution) — add them manually.`,
+  'instanceDetail.modpackManagedTag': 'from modpack',
+
+  'instanceDetail.selectAll': 'Select all',
+  'instanceDetail.deleteSelected': (v: Vars) => `Delete selected (${v.count})`,
+  'instanceDetail.confirmBulkDeleteMods': (v: Vars) =>
+    `Delete ${v.count} mod(s)?`,
+  'instanceDetail.confirmBulkDeleteFiles': (v: Vars) =>
+    `Delete ${v.count} config file(s)?`,
+  'instanceDetail.bulkDeleted': (v: Vars) => `${v.count} item(s) deleted.`,
+  'instanceDetail.searchMods': 'Search mods by name or file…',
+  'instanceDetail.searchFiles': 'Search files by path…',
+  'instanceDetail.noSearchResults': 'No results.',
+  'instanceDetail.colFile': 'File',
+  'instanceDetail.colSource': 'Source',
+  'instanceDetail.colUpdated': 'Last updated',
+  'instanceDetail.colModpack': 'Modpack',
+  'instanceDetail.colActions': 'Actions',
+  'instanceDetail.filterAllPacks': 'All modpacks',
+  'instanceDetail.filterManual': 'Manually added',
+  'instanceDetail.userBasedTag': 'User based',
+
   'players.title': 'Players',
   'players.subtitle':
     'Accounts used by launchers ("session": "anvil-session"). Separate from this UI\'s accounts.',
@@ -227,6 +270,16 @@ const en = {
   'error.not_enabled': '2FA is not enabled on this account.',
   'error.invalid_state': 'Session expired, please try again.',
   'error.invalid_passkey': 'This passkey could not be verified.',
+  'error.invalid_platform': 'Invalid platform.',
+  'error.curseforge_not_configured':
+    'CurseForge is not configured on this server (missing API key).',
+  'error.modpack_not_found': 'Modpack not found.',
+  'error.modpack_version_not_found': 'This modpack version was not found.',
+  'error.modpack_file_missing': 'No downloadable file for this version.',
+  'error.modpack_download_failed': 'Failed to download the modpack archive.',
+  'error.modpack_invalid_archive': 'Invalid modpack archive.',
+  'error.modpack_distribution_blocked':
+    'This modpack file disallows automated distribution.',
   'error.network': 'Network error.',
   'error.generic': (v: Vars) => `Error: ${v.code}`,
 };
@@ -314,6 +367,52 @@ const fr: typeof en = {
   'instanceDetail.noFiles': 'Aucun fichier de config.',
   'instanceDetail.fileSent': 'Fichier envoyé.',
   delete: 'Supprimer',
+
+  'instanceDetail.modpackTitle': 'Modpack',
+  'instanceDetail.modpackNone':
+    'Cette instance est configurée manuellement. Importez un modpack pour remplir automatiquement les mods, le loader et les fichiers de config.',
+  'instanceDetail.modpackCurrent': (v: Vars) =>
+    `Importé depuis ${v.platform} : ${v.name} v${v.version}`,
+  'instanceDetail.modpackPlatform': 'Plateforme',
+  'instanceDetail.modpackQuery': 'URL ou slug/ID du modpack',
+  'instanceDetail.modpackVersion': 'Version',
+  'instanceDetail.modpackImport': 'Importer',
+  'instanceDetail.modpackResync': 'Resynchroniser',
+  'instanceDetail.modpackImporting': 'Import en cours…',
+  'instanceDetail.modpackUnlink': 'Détacher',
+  'instanceDetail.modpackHistory': (v: Vars) =>
+    `Modpacks précédemment utilisés (${v.count})`,
+  'instanceDetail.modpackReimport': 'Réimporter',
+  'instanceDetail.modpackOpenLink': 'Ouvrir la page du modpack',
+  'instanceDetail.modpackConfirmUnlink':
+    "Détacher ce modpack ? Ses mods et fichiers restent sur l'instance mais les prochaines resynchronisations ne les toucheront plus.",
+  'instanceDetail.modpackUnlinked': 'Modpack détaché.',
+  'instanceDetail.modpackImported':
+    'Modpack importé. Les mods ajoutés manuellement ont été conservés.',
+  'instanceDetail.modpackWarnings': (v: Vars) =>
+    `${v.count} mod(s) n'ont pas pu être importés automatiquement (distribution bloquée) — ajoutez-les manuellement.`,
+  'instanceDetail.modpackManagedTag': 'depuis le modpack',
+
+  'instanceDetail.selectAll': 'Tout sélectionner',
+  'instanceDetail.deleteSelected': (v: Vars) =>
+    `Supprimer la sélection (${v.count})`,
+  'instanceDetail.confirmBulkDeleteMods': (v: Vars) =>
+    `Supprimer ${v.count} mod(s) ?`,
+  'instanceDetail.confirmBulkDeleteFiles': (v: Vars) =>
+    `Supprimer ${v.count} fichier(s) de config ?`,
+  'instanceDetail.bulkDeleted': (v: Vars) =>
+    `${v.count} élément(s) supprimé(s).`,
+  'instanceDetail.searchMods': 'Rechercher un mod par nom ou fichier…',
+  'instanceDetail.searchFiles': 'Rechercher un fichier par chemin…',
+  'instanceDetail.noSearchResults': 'Aucun résultat.',
+  'instanceDetail.colFile': 'Fichier',
+  'instanceDetail.colSource': 'Source',
+  'instanceDetail.colUpdated': 'Dernière MAJ',
+  'instanceDetail.colModpack': 'Modpack',
+  'instanceDetail.colActions': 'Actions',
+  'instanceDetail.filterAllPacks': 'Tous les modpacks',
+  'instanceDetail.filterManual': 'Ajoutés manuellement',
+  'instanceDetail.userBasedTag': 'Ajout manuel',
 
   'players.title': 'Joueurs',
   'players.subtitle':
@@ -460,6 +559,19 @@ const fr: typeof en = {
   'error.not_enabled': "La 2FA n'est pas activée sur ce compte.",
   'error.invalid_state': 'Session expirée, veuillez réessayer.',
   'error.invalid_passkey': "Cette clé d'accès n'a pas pu être vérifiée.",
+  'error.invalid_platform': 'Plateforme invalide.',
+  'error.curseforge_not_configured':
+    "CurseForge n'est pas configuré sur ce serveur (clé API manquante).",
+  'error.modpack_not_found': 'Modpack introuvable.',
+  'error.modpack_version_not_found':
+    'Cette version du modpack est introuvable.',
+  'error.modpack_file_missing':
+    'Aucun fichier téléchargeable pour cette version.',
+  'error.modpack_download_failed':
+    "Échec du téléchargement de l'archive du modpack.",
+  'error.modpack_invalid_archive': 'Archive de modpack invalide.',
+  'error.modpack_distribution_blocked':
+    'Ce fichier de modpack interdit la distribution automatisée.',
   'error.network': 'Erreur réseau.',
   'error.generic': (v: Vars) => `Erreur : ${v.code}`,
 };

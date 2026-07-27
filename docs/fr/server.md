@@ -17,14 +17,15 @@ un compte admin est créé à partir des variables d'environnement — défaut
 `admin:admin`, **changez le mot de passe immédiatement** depuis la page
 _Mon compte_.
 
-| Variable               | Défaut                        | Rôle                                  |
-| ---------------------- | ----------------------------- | ------------------------------------- |
-| `PORT`                 | `8080`                        | Port d'écoute                         |
-| `MONGO_URL`            | `mongodb://mongo:27017/anvil` | Connexion MongoDB                     |
-| `DATA_DIR`             | `/data`                       | Stockage des mods / fichiers uploadés |
-| `PUBLIC_URL`           | _(origine de la requête)_     | Base des URLs de téléchargement       |
-| `ANVIL_ADMIN_USERNAME` | `admin`                       | Login admin bootstrap                 |
-| `ANVIL_ADMIN_PASSWORD` | `admin`                       | Mot de passe admin bootstrap          |
+| Variable               | Défaut                        | Rôle                                          |
+| ---------------------- | ----------------------------- | --------------------------------------------- |
+| `PORT`                 | `8080`                        | Port d'écoute                                 |
+| `MONGO_URL`            | `mongodb://mongo:27017/anvil` | Connexion MongoDB                             |
+| `DATA_DIR`             | `/data`                       | Stockage des mods / fichiers uploadés         |
+| `PUBLIC_URL`           | _(origine de la requête)_     | Base des URLs de téléchargement               |
+| `ANVIL_ADMIN_USERNAME` | `admin`                       | Login admin bootstrap                         |
+| `ANVIL_ADMIN_PASSWORD` | `admin`                       | Mot de passe admin bootstrap                  |
+| `CURSEFORGE_API_KEY`   | _(aucune)_                    | Requise pour importer des modpacks CurseForge |
 
 Pour construire l'image manuellement : `docker build -t anvil-server server/`.
 
@@ -99,6 +100,24 @@ Au démarrage, le launcher récupère les instances actives via
 de config sont téléchargés pendant le setup. La liste est mise en cache sur
 disque : le launcher reste utilisable hors-ligne. Les fichiers de config sont
 re-téléchargés à chaque setup — le serveur fait autorité.
+
+## Import de modpacks (Modrinth / CurseForge)
+
+Depuis la page d'une instance, importez un modpack par plateforme +
+URL/slug/ID + version : les mods sont téléchargés et hébergés localement, le
+loader et la version Minecraft sont renseignés automatiquement, et les
+fichiers de config du dossier `overrides/` du modpack sont extraits dans
+l'instance. Les imports CurseForge nécessitent une `CURSEFORGE_API_KEY`
+(depuis [console.curseforge.com](https://console.curseforge.com)) — Modrinth
+ne nécessite aucune clé.
+
+Plusieurs modpacks peuvent être **fusionnés** sur la même instance : importer
+un nouveau pack ne remplace que ses propres mods/fichiers, tout le reste
+(autres packs, mods ajoutés manuellement) reste intact. Chaque pack peut être
+**resynchronisé** (retirer une version) ou **détaché** indépendamment —
+détacher conserve ses mods/fichiers sur l'instance (ils cessent juste d'être
+gérés) et garde le pack dans un historique « précédemment utilisé » pour un
+réimport ultérieur.
 
 ## Joueurs, utilisateurs web & 2FA
 

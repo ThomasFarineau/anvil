@@ -15,4 +15,7 @@ export const env = {
    *  (WebAuthn) sur un nom d'hôte local autre que localhost/127.0.0.1. */
   tlsCert: process.env.TLS_CERT ?? '',
   tlsKey: process.env.TLS_KEY ?? '',
+  /** Clé API CurseForge (console.curseforge.com), requise pour importer des
+   *  modpacks CurseForge. Modrinth ne nécessite aucune clé. */
+  curseforgeApiKey: process.env.CURSEFORGE_API_KEY ?? '',
 };

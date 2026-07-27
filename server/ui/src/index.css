@@ -80,3 +80,44 @@ body {
 .label {
   @apply mb-1 block text-xs font-medium tracking-wide text-slate-400 uppercase;
 }
+
+.checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  flex-shrink: 0;
+  width: 1.05rem;
+  height: 1.05rem;
+  display: inline-grid;
+  place-content: center;
+  border-radius: 0.3rem;
+  border: 1.5px solid var(--color-edge);
+  background-color: var(--color-surface);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+.checkbox:hover {
+  border-color: var(--color-accent);
+}
+.checkbox:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline-offset: 1px;
+}
+.checkbox::after {
+  content: '';
+  width: 0.62rem;
+  height: 0.62rem;
+  transform: scale(0);
+  transition: transform 0.1s ease-in-out;
+  box-shadow: inset 1em 1em white;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+.checkbox:checked {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.checkbox:checked::after {
+  transform: scale(1);
+}

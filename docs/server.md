@@ -16,14 +16,15 @@ The web UI is served on `http://localhost:8080`. On first start an admin
 account is created from the environment variables — default `admin:admin`,
 **change the password right away** from the _Account_ page.
 
-| Variable               | Default                       | Purpose                              |
-| ---------------------- | ----------------------------- | ------------------------------------ |
-| `PORT`                 | `8080`                        | Listen port                          |
-| `MONGO_URL`            | `mongodb://mongo:27017/anvil` | MongoDB connection string            |
-| `DATA_DIR`             | `/data`                       | Uploaded mods / config files storage |
-| `PUBLIC_URL`           | _(request origin)_            | Base of generated download URLs      |
-| `ANVIL_ADMIN_USERNAME` | `admin`                       | Bootstrap admin login                |
-| `ANVIL_ADMIN_PASSWORD` | `admin`                       | Bootstrap admin password             |
+| Variable               | Default                       | Purpose                                |
+| ---------------------- | ----------------------------- | -------------------------------------- |
+| `PORT`                 | `8080`                        | Listen port                            |
+| `MONGO_URL`            | `mongodb://mongo:27017/anvil` | MongoDB connection string              |
+| `DATA_DIR`             | `/data`                       | Uploaded mods / config files storage   |
+| `PUBLIC_URL`           | _(request origin)_            | Base of generated download URLs        |
+| `ANVIL_ADMIN_USERNAME` | `admin`                       | Bootstrap admin login                  |
+| `ANVIL_ADMIN_PASSWORD` | `admin`                       | Bootstrap admin password               |
+| `CURSEFORGE_API_KEY`   | _(none)_                      | Required to import CurseForge modpacks |
 
 To build the image manually: `docker build -t anvil-server server/`.
 
@@ -97,6 +98,23 @@ At startup the launcher fetches the enabled instances from
 files are downloaded during setup. The list is cached on disk so the launcher
 keeps working offline. Config files are re-downloaded on every setup — the
 server is authoritative for them.
+
+## Importing modpacks (Modrinth / CurseForge)
+
+From an instance's page, import a modpack by platform + URL/slug/ID +
+version: mods are downloaded and hosted locally, the loader and Minecraft
+version are set automatically, and the modpack's `overrides/` config files
+are extracted into the instance. CurseForge imports require a
+`CURSEFORGE_API_KEY` (from
+[console.curseforge.com](https://console.curseforge.com)) — Modrinth needs no
+key.
+
+Multiple modpacks can be **merged** onto the same instance: importing a new
+pack only replaces its own mods/files, everything else (other packs, manually
+added mods) is left untouched. Each pack can be **resynced** (re-pull a
+version) or **unlinked** independently — unlinking keeps its mods/files on
+the instance (they just stop being managed) and keeps the pack in a
+"previously used" history for a later re-import.
 
 ## Players, web users & 2FA
 

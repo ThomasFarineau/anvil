@@ -75,12 +75,47 @@ export interface ModEntry {
   /** null = fichier hébergé par ce serveur (upload), sinon URL externe. */
   url: string | null;
   size: number | null;
+  /** Clé du modpack (`platform:id`) qui gère cette entrée — remplacée à
+   *  chaque resync de ce modpack. Absent = ajouté manuellement, jamais
+   *  touché par un import/resync. */
+  source?: string;
+  /** Optionnel : absent sur les entrées créées avant l'introduction de ce
+   *  champ (pas de migration rétroactive, juste un "—" affiché en UI). */
+  updatedAt?: Date;
 }
 
 export interface FileEntry {
   /** Chemin relatif dans le dossier de l'instance (ex: config/mod.toml). */
   path: string;
   size: number;
+  /** Clé du modpack (`platform:id`) qui gère ce fichier. */
+  source?: string;
+  updatedAt?: Date;
+}
+
+/** Référence à un modpack Modrinth/CurseForge importé sur une instance.
+ *  Plusieurs modpacks peuvent coexister sur la même instance (fusion) :
+ *  importer un nouveau pack ne touche que ses propres mods/fichiers,
+ *  identifiés par `key`. */
+export interface ModpackRef {
+  /** Identifiant stable `platform:id`, utilisé comme `source` sur les
+   *  ModEntry/FileEntry qu'il gère. */
+  key: string;
+  platform: 'modrinth' | 'curseforge';
+  /** Slug/ID du projet tel que résolu (pas forcément la saisie brute de l'admin). */
+  id: string;
+  /** Page publique du modpack (Modrinth/CurseForge), null si indisponible.
+   *  Absent sur les entrées créées avant l'introduction de ce champ. */
+  url?: string | null;
+  /** ID de la version/du fichier importé. */
+  version_id: string;
+  name: string;
+  version_name: string;
+  importedAt: Date;
+  /** Renseigné quand l'admin détache ce modpack : l'entrée reste dans
+   *  l'historique (jamais supprimée) mais n'est plus "active". Un nouvel
+   *  import/resync du même modpack la réactive (repasse à null). */
+  unlinkedAt: Date | null;
 }
 
 export interface InstanceDoc {
@@ -95,6 +130,9 @@ export interface InstanceDoc {
   server_port: number;
   mods: ModEntry[];
   files: FileEntry[];
+  /** Modpacks importés et fusionnés sur cette instance (vide = configurée
+   *  manuellement, ou fusion de plusieurs modpacks). */
+  modpacks: ModpackRef[];
   updatedAt: Date;
 }
 
@@ -148,6 +186,16 @@ export async function connectDb(): Promise<void> {
   await players().updateMany(
     { authMethod: { $exists: false } },
     { $set: { authMethod: 'password', authKey: null } },
+  );
+  // Migration : instances créées avant le support multi-modpack (référence
+  // `modpack` singulière remplacée par un tableau `modpacks`).
+  await instances().updateMany(
+    { modpacks: { $exists: false } },
+    { $set: { modpacks: [] } },
+  );
+  await instances().updateMany(
+    { modpack: { $exists: true } },
+    { $unset: { modpack: '' } },
   );
 }
 
