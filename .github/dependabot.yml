@@ -1,27 +1,26 @@
 version: 2
 
 updates: # Dépendances JavaScript / TypeScript
-  -
-    package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
 
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "07:00"
-      timezone: "Europe/Paris"
+      interval: 'weekly'
+      day: 'monday'
+      time: '07:00'
+      timezone: 'Europe/Paris'
 
     # Évite l'accumulation de PR
     open-pull-requests-limit: 5
 
     labels:
-      - "dependencies"
-      - "automated"
+      - 'dependencies'
+      - 'automated'
 
     commit-message:
-      prefix: "chore"
-      prefix-development: "chore"
-      include: "scope"
+      prefix: 'chore'
+      prefix-development: 'chore'
+      include: 'scope'
 
     # Attend avant de proposer les versions récemment publiées.
     # Ne s'applique pas aux mises à jour de sécurité.
@@ -33,54 +32,53 @@ updates: # Dépendances JavaScript / TypeScript
 
     groups: # Une PR pour les mises à jour de production peu risquées
       production-minor-patch:
-        applies-to: "version-updates"
-        dependency-type: "production"
+        applies-to: 'version-updates'
+        dependency-type: 'production'
         patterns:
-          - "*"
+          - '*'
         update-types:
-          - "minor"
-          - "patch"
+          - 'minor'
+          - 'patch'
 
       # Une autre PR pour les outils de développement
       development-minor-patch:
-        applies-to: "version-updates"
-        dependency-type: "development"
+        applies-to: 'version-updates'
+        dependency-type: 'development'
         patterns:
-          - "*"
+          - '*'
         update-types:
-          - "minor"
-          - "patch"
+          - 'minor'
+          - 'patch'
 
   # Actions utilisées dans .github/workflows
-  -
-    package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
 
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "07:30"
-      timezone: "Europe/Paris"
+      interval: 'weekly'
+      day: 'monday'
+      time: '07:30'
+      timezone: 'Europe/Paris'
 
     open-pull-requests-limit: 3
 
     labels:
-      - "dependencies"
-      - "github-actions"
-      - "automated"
+      - 'dependencies'
+      - 'github-actions'
+      - 'automated'
 
     commit-message:
-      prefix: "ci"
-      include: "scope"
+      prefix: 'ci'
+      include: 'scope'
 
     cooldown:
       default-days: 3
 
     groups:
       github-actions-minor-patch:
-        applies-to: "version-updates"
+        applies-to: 'version-updates'
         patterns:
-          - "*"
+          - '*'
         update-types:
-          - "minor"
-          - "patch"
+          - 'minor'
+          - 'patch'

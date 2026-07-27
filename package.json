@@ -29,6 +29,7 @@
     "lint": "oxlint .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
+    "fix": "bun run lint --fix && bun run format",
     "check": "bun run build && bun run lint && bun run format:check && bun test",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
