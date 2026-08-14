@@ -7,6 +7,7 @@ const view = ref<'loading' | 'setup' | 'main'>('loading');
 const config = ref<LauncherConfig | null>(null);
 const status = ref<InitStatus | null>(null);
 const username = ref('');
+const microsoftReady = ref(false);
 const dir = ref('');
 const progress = reactive<
   Record<string, { pct: number; label: string; error: boolean }>
@@ -39,7 +40,18 @@ onMounted(async () => {
   document.title = cfg.app_name;
   config.value = cfg;
   status.value = init;
-  username.value = settings.username ?? '';
+  if (cfg.session === 'microsoft') {
+    const session = await MC.microsoftSession.restore().catch((e) => {
+      message.value = `Microsoft: ${e}`;
+      return null;
+    });
+    if (session) {
+      username.value = session.username;
+      microsoftReady.value = true;
+    }
+  } else {
+    username.value = settings.username ?? '';
+  }
   dir.value = init.launcher_dir;
   view.value =
     init.java_ok && init.instances.every((i) => i.installed) ? 'main' : 'setup';
@@ -92,10 +104,29 @@ async function playOrStop(id: string) {
     await MC.stop(id).catch(() => {});
     return;
   }
-  if (!username.value.trim()) return;
-  const settings = await MC.getSettings();
-  await MC.saveSettings({ ...settings, username: username.value.trim() });
   try {
+    let player = username.value.trim();
+    if (config.value!.session === 'microsoft') {
+      const restored = await MC.microsoftSession.restore();
+      if (restored) {
+        player = restored.username;
+        username.value = player;
+        microsoftReady.value = true;
+      } else {
+        microsoftReady.value = false;
+      }
+    }
+    if (config.value!.session === 'microsoft' && !microsoftReady.value) {
+      message.value = 'Opening Microsoft sign-in…';
+      const session = await MC.microsoftSession.signIn();
+      player = session.username;
+      username.value = player;
+      microsoftReady.value = true;
+      message.value = `Connected as ${player}.`;
+    }
+    if (!player) return;
+    const settings = await MC.getSettings();
+    await MC.saveSettings({ ...settings, username: player });
     await MC.verify(id);
     await MC.play(id);
   } catch (e) {
@@ -144,12 +175,23 @@ async function playOrStop(id: string) {
       <h1>{{ config.app_name }}</h1>
     </div>
     <label>Username</label>
-    <input v-model="username" type="text" maxlength="16" placeholder="Steve" />
+    <input
+      v-model="username"
+      type="text"
+      maxlength="16"
+      :placeholder="
+        config.session === 'microsoft' ? 'Microsoft account' : 'Steve'
+      "
+      :readonly="config.session === 'microsoft'" />
     <button
       v-for="inst in config.instances"
       :key="inst.id"
       class="instance-btn"
-      :disabled="!running.includes(inst.id) && !username.trim()"
+      :disabled="
+        !running.includes(inst.id) &&
+        config.session !== 'microsoft' &&
+        !username.trim()
+      "
       @click="playOrStop(inst.id)">
       {{ running.includes(inst.id) ? '■  Stop' : `▶  ${inst.name}` }}
     </button>

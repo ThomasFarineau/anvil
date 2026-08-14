@@ -13,6 +13,7 @@ export default function App() {
   const [status, setStatus] = useState<InitStatus | null>(null);
   const [view, setView] = useState<'loading' | 'setup' | 'main'>('loading');
   const [username, setUsername] = useState('');
+  const [microsoftReady, setMicrosoftReady] = useState(false);
   const [dir, setDir] = useState('');
   const [progress, setProgress] = useState<Record<string, StepProgress>>({});
   const [installing, setInstalling] = useState(false);
@@ -30,7 +31,18 @@ export default function App() {
       document.title = cfg.app_name;
       setConfig(cfg);
       setStatus(init);
-      setUsername(settings.username ?? '');
+      if (cfg.session === 'microsoft') {
+        const session = await MC.microsoftSession.restore().catch((e) => {
+          setMessage(`Microsoft: ${e}`);
+          return null;
+        });
+        if (session) {
+          setUsername(session.username);
+          setMicrosoftReady(true);
+        }
+      } else {
+        setUsername(settings.username ?? '');
+      }
       setDir(init.launcher_dir);
       setView(
         init.java_ok && init.instances.every((i) => i.installed)
@@ -84,10 +96,32 @@ export default function App() {
       await MC.stop(id).catch(() => {});
       return;
     }
-    if (!username.trim()) return;
-    const settings = await MC.getSettings();
-    await MC.saveSettings({ ...settings, username: username.trim() });
     try {
+      let player = username.trim();
+      let microsoftActive = microsoftReady;
+      if (config!.session === 'microsoft') {
+        const restored = await MC.microsoftSession.restore();
+        if (restored) {
+          player = restored.username;
+          microsoftActive = true;
+          setUsername(player);
+          setMicrosoftReady(true);
+        } else {
+          microsoftActive = false;
+          setMicrosoftReady(false);
+        }
+      }
+      if (config!.session === 'microsoft' && !microsoftActive) {
+        setMessage('Opening Microsoft sign-in…');
+        const session = await MC.microsoftSession.signIn();
+        player = session.username;
+        setUsername(player);
+        setMicrosoftReady(true);
+        setMessage(`Connected as ${player}.`);
+      }
+      if (!player) return;
+      const settings = await MC.getSettings();
+      await MC.saveSettings({ ...settings, username: player });
       await MC.verify(id);
       await MC.play(id);
     } catch (e) {
@@ -171,15 +205,22 @@ export default function App() {
       <input
         type="text"
         maxLength={16}
-        placeholder="Steve"
+        placeholder={
+          config.session === 'microsoft' ? 'Microsoft account' : 'Steve'
+        }
         value={username}
+        readOnly={config.session === 'microsoft'}
         onChange={(e) => setUsername(e.target.value)}
       />
       {config.instances.map((inst) => (
         <button
           key={inst.id}
           className="instance-btn"
-          disabled={!running.includes(inst.id) && !username.trim()}
+          disabled={
+            !running.includes(inst.id) &&
+            config.session !== 'microsoft' &&
+            !username.trim()
+          }
           onClick={() => playOrStop(inst.id)}>
           {running.includes(inst.id) ? '■  Stop' : `▶  ${inst.name}`}
         </button>

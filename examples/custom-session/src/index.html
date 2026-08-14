@@ -177,7 +177,7 @@
       if (config.session === 'custom') {
         initCustomSession(settings);
       } else {
-        // "none" or "mojang" — simple offline username
+        // "none" — simple offline username
         const section = document.getElementById('section-offline');
         section.style.display = 'block';
         if (settings.username) document.getElementById('username-input').value = settings.username;

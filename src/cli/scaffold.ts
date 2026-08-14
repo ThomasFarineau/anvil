@@ -112,6 +112,7 @@ export function scaffoldTauri(projectDir: string, name: string): void {
       beforeBuildCommand: 'npm run build:ui',
       devUrl: 'http://localhost:5173',
       frontendDist: '../dist',
+      additionalWatchFolders: ['../config.json'],
     };
   }
   fs.writeFileSync(

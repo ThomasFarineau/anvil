@@ -15,12 +15,20 @@ Importez `api.js` dans votre HTML :
 MC.getConfig(); // → LauncherConfig
 MC.getSettings(); // → Settings
 MC.saveSettings(settings); // → void
+MC.getSystemMemory(); // → number (RAM physique totale, en Mo)
 MC.getDefaultDir(); // → string (chemin %APPDATA%/... par défaut)
+MC.pickFolder(start?); // → string | null (sélecteur de dossier natif)
 MC.getVersion(); // → string (version de l'application)
 
 // Installation
 MC.getInitStatus(); // → InitStatus  (java_ok, instances[] avec installed/running)
 MC.runSetup(); // → void  (télécharge Java, le jeu et les mods déclarés)
+MC.resetLauncherDir(); // → void (vide le dossier du launcher — irréversible)
+
+// Événements du cycle d'installation
+MC.on.install(cb);     // reset terminé ; l'installation peut démarrer
+MC.on.installing(cb);  // installation en cours
+MC.on.reset(cb);       // réinitialisation démarrée
 
 // Jeu
 MC.verify(instanceId); // → void  (vérifie les fichiers et les mods déclarés)
@@ -44,6 +52,14 @@ MC.openInstanceFolder(instanceId); // ouvre le dossier de l'instance
 MC.setSession({ username, uuid, access_token });
 MC.clearSession();
 
+// Compte Microsoft (session: "microsoft")
+MC.microsoftSession.signIn(); // → MicrosoftLoginResult (fenêtre Xbox/Microsoft intégrée)
+MC.microsoftSession.start(); // → { user_code, verification_uri, expires_in }
+MC.microsoftSession.finish(); // → { username, uuid }
+MC.microsoftSession.login(onCode?); // raccourci start + finish
+MC.microsoftSession.restore(); // → { username, uuid } | null
+MC.microsoftSession.logout(); // efface la session Microsoft locale
+
 // Mises à jour
 MC.checkUpdate(); // → UpdateInfo | null
 MC.doUpdate(url); // → void
@@ -53,6 +69,7 @@ MC.close(); // ferme l'application
 MC.minimize(); // réduit la fenêtre
 MC.toggleMaximize(); // maximise/restaure la fenêtre
 MC.startDrag(); // déplacement fenêtre (barres de titre custom)
+MC.setShadow(enabled); // ombre portée native (Windows/macOS, sans effet sur Linux)
 
 // Événements
 MC.on.setupProgress(cb); // cb({ step, current, total, label, error })

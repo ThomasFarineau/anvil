@@ -11,12 +11,18 @@ export const MC = {
   getConfig: () => _invoke('get_server_config'),
   getSettings: () => _invoke('get_settings'),
   saveSettings: (settings) => _invoke('save_settings', { settings }),
+  getSystemMemory: () => _invoke('get_system_memory'),
   getDefaultDir: () => _invoke('get_default_launcher_dir'),
+  // Sélecteur de dossier natif — résout sur null si l'utilisateur annule
+  pickFolder: (start = null) => _invoke('pick_folder', { start }),
   getVersion: () => _invoke('get_launcher_version'),
 
   // ── Init / install ─────────────────────────────────────────
   getInitStatus: () => _invoke('get_init_status'),
   runSetup: () => _invoke('run_setup'),
+  // Vide le dossier du launcher — jeu, Java, instances et sauvegardes.
+  // Irréversible : à faire confirmer côté interface.
+  resetLauncherDir: () => _invoke('reset_launcher_dir'),
 
   // ── Game ───────────────────────────────────────────────────
   verify: (instanceId) => _invoke('verify_game', { instanceId }),
@@ -43,6 +49,7 @@ export const MC = {
   // ── Folders ────────────────────────────────────────────────
   openInstanceFolder: (instanceId) =>
     _invoke('open_instance_folder', { instanceId }),
+  openLogsFolder: () => _invoke('open_logs_folder'),
 
   // ── Updater ────────────────────────────────────────────────
   checkUpdate: () => _invoke('check_update'),
@@ -51,6 +58,33 @@ export const MC = {
   // ── Session ────────────────────────────────────────────────
   setSession: (session) => _invoke('set_custom_session', { session }),
   clearSession: () => _invoke('set_custom_session', { session: null }),
+
+  // ── Microsoft account ("session": "microsoft") ───────────
+  microsoftSession: {
+    // Opens the Xbox/Microsoft sign-in flow in a launcher-owned window.
+    signIn: () => _invoke('microsoft_session_login'),
+    // Opens the Microsoft validation page in the default browser and returns
+    // the code that must be entered there.
+    start: () => _invoke('microsoft_session_start'),
+    // Waits for browser validation, then resolves the Minecraft Java profile.
+    finish: () => _invoke('microsoft_session_finish'),
+    // Device-code convenience flow. The native backend opens the default
+    // browser; the callback can render the code in a custom UI.
+    login: async (onCode = null) => {
+      const device = await _invoke('microsoft_session_start');
+      if (onCode) {
+        await onCode(device);
+      } else {
+        window.alert(
+          `Enter code ${device.user_code} at ${device.verification_uri}`,
+        );
+      }
+      return _invoke('microsoft_session_finish');
+    },
+    // Restores and refreshes the locally persisted session.
+    restore: () => _invoke('microsoft_session_restore'),
+    logout: () => _invoke('microsoft_session_logout'),
+  },
 
   // ── Session anvil-server ("session": "anvil-session") ─────
   anvilSession: {
@@ -68,9 +102,14 @@ export const MC = {
   minimize: () => _window.getCurrentWindow().minimize(),
   toggleMaximize: () => _window.getCurrentWindow().toggleMaximize(),
   startDrag: () => _window.getCurrentWindow().startDragging(),
+  // Ombre portée native — Windows et macOS uniquement, sans effet sur Linux
+  setShadow: (enabled) => _window.getCurrentWindow().setShadow(enabled),
 
   // ── Events ─────────────────────────────────────────────────
   on: {
+    install: (cb) => _listen('install', cb),
+    installing: (cb) => _listen('installing', cb),
+    reset: (cb) => _listen('reset', cb),
     setupProgress: (cb) => _listen('setup:progress', (e) => cb(e.payload)),
     setupDone: (cb) => _listen('setup:done', cb),
     gameStarting: (cb) => _listen('game:starting', (e) => cb(e.payload)),

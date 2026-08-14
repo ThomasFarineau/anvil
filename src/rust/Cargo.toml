@@ -22,6 +22,8 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2", features = [] }
 tauri-plugin-log = "2"
+# Sélecteur de dossier natif (commande pick_folder)
+tauri-plugin-dialog = "2"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 dirs = "5"
@@ -29,3 +31,9 @@ zip = "2"
 tar = "0.4"
 flate2 = "1"
 chrono = "0.4"
+# Uniquement pour la RAM totale de la machine (get_system_memory)
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+# Flux authorization code + PKCE de la connexion Microsoft en fenêtre interne
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.2"

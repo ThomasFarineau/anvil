@@ -27,6 +27,6 @@ features:
     details: Declare mods in config.json and they're downloaded, verified and kept in sync automatically.
   - title: Auto-updates & icons
     details: Ship update manifests via URL and generate every app icon size from a single logo file.
-  - title: Custom sessions
-    details: Bring your own authentication (OAuth, custom API…) or use offline mode out of the box.
+  - title: Microsoft and custom sessions
+    details: Sign in with a Microsoft account, bring your own authentication, or use offline mode.
 ---

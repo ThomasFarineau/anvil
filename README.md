@@ -38,7 +38,7 @@ Full docs, guides and API reference: **[thomasfarineau.github.io/anvil](https://
 - [Project structure](https://thomasfarineau.github.io/anvil/guide/project-structure)
 - [config.json reference](https://thomasfarineau.github.io/anvil/config/)
 - [Mods per instance](https://thomasfarineau.github.io/anvil/config/mods)
-- [Session (offline / custom auth)](https://thomasfarineau.github.io/anvil/session)
+- [Session (offline / Microsoft / custom auth)](https://thomasfarineau.github.io/anvil/session)
 - [Anvil Server](https://thomasfarineau.github.io/anvil/server)
 - [JavaScript API](https://thomasfarineau.github.io/anvil/api)
 - [App icon generation](https://thomasfarineau.github.io/anvil/icons)

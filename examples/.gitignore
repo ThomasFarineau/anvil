@@ -2,3 +2,6 @@
 */node_modules/
 */dist/
 */bun.lock
+
+# Local-only example (not committed)
+pokeheaven/

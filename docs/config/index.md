@@ -9,10 +9,18 @@
   "java_version": 21,
   "logo": "logo.svg",
   "session": "none",
+  "microsoft-client-id": "",
   "update_url": "",
   "target": "dist",
-  "window_decorations": true,
-  "window_resizable": false,
+  "window": {
+    "decorations": true,
+    "resizable": true,
+    "width": 1000,
+    "height": 660,
+    "shadow": true,
+    "transparent": false,
+    "devtools": true
+  },
   "instances": [
     {
       "id": "survival",
@@ -38,21 +46,28 @@
 
 ## Field reference
 
-| Field                | Type                                                      | Description                                                                                             |
-| -------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `identifier`         | `string`                                                  | Reverse-domain app identifier (e.g. `com.mycompany.launcher`)                                           |
-| `app_name`           | `string`                                                  | App name shown in the native window and UI                                                              |
-| `data_folder`        | `string`                                                  | Sub-folder in `%APPDATA%` / `~/Library` for game data                                                   |
-| `java_version`       | `17` \| `21`                                              | Java version to download automatically                                                                  |
-| `logo`               | `string`                                                  | Path to the logo (relative to `src/`) — `.svg` or `.png`, auto-converted to app icon                    |
-| `session`            | `"none"` \| `"mojang"` \| `"custom"` \| `"anvil-session"` | Authentication mode — see [Session](../session) and [Anvil Server](../server)                           |
-| `update_url`         | `string`                                                  | URL of the update manifest (leave empty to disable)                                                     |
-| `target`             | `string`                                                  | Output folder for compiled executables (e.g. `dist`)                                                    |
-| `window_decorations` | `boolean`                                                 | Show the native title bar                                                                               |
-| `window_resizable`   | `boolean`                                                 | Allow the user to resize the window                                                                     |
-| `instances`          | `array`                                                   | List of available Minecraft instances (ignored when `anvil-server` is set)                              |
-| `anvil-server`       | `string`                                                  | Base URL of an [anvil-server](../server): the launcher fetches its enabled instances from it at startup |
-| `anvil-key`          | `string`                                                  | API key generated in the [anvil-server](../server) web UI — required to query the server                |
+| Field                 | Type                                                         | Description                                                                                             |
+| --------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `identifier`          | `string`                                                     | Reverse-domain app identifier (e.g. `com.mycompany.launcher`)                                           |
+| `app_name`            | `string`                                                     | App name shown in the native window and UI                                                              |
+| `data_folder`         | `string`                                                     | Sub-folder in `%APPDATA%` / `~/Library` for game data                                                   |
+| `java_version`        | `17` \| `21`                                                 | Java version to download automatically                                                                  |
+| `logo`                | `string`                                                     | Path to the logo (relative to `src/`) — `.svg` or `.png`, auto-converted to app icon                    |
+| `session`             | `"none"` \| `"microsoft"` \| `"custom"` \| `"anvil-session"` | Authentication mode — see [Session](../session) and [Anvil Server](../server)                           |
+| `microsoft-client-id` | `string`                                                     | Microsoft Entra application ID required by the `"microsoft"` session                                    |
+| `update_url`          | `string`                                                     | URL of the update manifest (leave empty to disable)                                                     |
+| `target`              | `string`                                                     | Output folder for compiled executables (e.g. `dist`)                                                    |
+| `window`              | `object`                                                     | Native launcher window settings                                                                          |
+| `window.decorations`  | `boolean`                                                    | Show the native title bar                                                                                |
+| `window.resizable`    | `boolean`                                                    | Allow the user to resize the window                                                                      |
+| `window.width`        | `integer`                                                    | Initial launcher width in logical pixels (minimum `800`)                                                 |
+| `window.height`       | `integer`                                                    | Initial launcher height in logical pixels (minimum `520`)                                                |
+| `window.shadow`       | `boolean`                                                    | Show the native window shadow                                                                           |
+| `window.transparent`  | `boolean`                                                    | Use a transparent native window background                                                               |
+| `window.devtools`     | `boolean`                                                    | Enable or disable webview developer tools during `npm run dev`                                           |
+| `instances`           | `array`                                                      | List of available Minecraft instances (ignored when `anvil-server` is set)                              |
+| `anvil-server`        | `string`                                                     | Base URL of an [anvil-server](../server): the launcher fetches its enabled instances from it at startup |
+| `anvil-key`           | `string`                                                     | API key generated in the [anvil-server](../server) web UI — required to query the server                |
 
 ## Instance fields
 

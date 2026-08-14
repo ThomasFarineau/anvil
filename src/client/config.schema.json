@@ -5,6 +5,18 @@
   "description": "Configuration file for an Anvil Minecraft launcher (config.json)",
   "type": "object",
   "anyOf": [{ "required": ["instances"] }, { "required": ["anvil-server"] }],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "session": { "const": "microsoft" } },
+        "required": ["session"]
+      },
+      "then": {
+        "required": ["microsoft-client-id"],
+        "properties": { "microsoft-client-id": { "minLength": 1 } }
+      }
+    }
+  ],
   "additionalProperties": false,
   "properties": {
     "$schema": {
@@ -48,9 +60,14 @@
     },
     "session": {
       "type": "string",
-      "enum": ["none", "mojang", "custom", "anvil-session"],
-      "description": "Authentication mode. 'none': offline. 'custom': client calls MC.setSession() before launch. 'anvil-session': login (username/password/2FA) handled by the anvil-server declared in 'anvil-server'.",
+      "enum": ["none", "microsoft", "custom", "anvil-session"],
+      "description": "Authentication mode. 'none': offline. 'microsoft': Microsoft/Xbox/Minecraft Java device-code login. 'custom': client calls MC.setSession() before launch. 'anvil-session': login (username/password/2FA) handled by the anvil-server declared in 'anvil-server'.",
       "default": "none"
+    },
+    "microsoft-client-id": {
+      "type": "string",
+      "description": "Microsoft Entra application (client) ID used by the 'microsoft' session. Register a public client application supporting personal Microsoft accounts and device-code flow.",
+      "default": ""
     },
     "anvil-server": {
       "type": "string",
@@ -62,15 +79,20 @@
       "description": "API key generated in the anvil-server web UI (Clés API). Required to query the server: instance list, sessions and file downloads are refused without a valid key.",
       "default": ""
     },
-    "window_decorations": {
-      "type": "boolean",
-      "description": "Show native window title bar and borders",
-      "default": true
-    },
-    "window_resizable": {
-      "type": "boolean",
-      "description": "Allow the user to resize the launcher window",
-      "default": false
+    "window": {
+      "type": "object",
+      "description": "Native launcher window settings",
+      "additionalProperties": false,
+      "properties": {
+        "decorations": { "type": "boolean", "description": "Show native window title bar and borders", "default": true },
+        "resizable": { "type": "boolean", "description": "Allow the user to resize the launcher window", "default": true },
+        "width": { "type": "integer", "minimum": 800, "description": "Initial launcher window width in logical pixels", "default": 1000 },
+        "height": { "type": "integer", "minimum": 520, "description": "Initial launcher window height in logical pixels", "default": 660 },
+        "shadow": { "type": "boolean", "description": "Show the native window shadow", "default": true },
+        "transparent": { "type": "boolean", "description": "Use a transparent native window background", "default": false },
+        "devtools": { "type": "boolean", "description": "Enable or disable webview developer tools in development mode", "default": true }
+      },
+      "default": {}
     },
     "instances": {
       "type": "array",

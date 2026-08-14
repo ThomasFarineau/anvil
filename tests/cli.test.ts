@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
+import { createWindowOverride } from '../src/cli/tauri';
 
 // Run the TypeScript CLI source directly with Bun (process.execPath is the
 // Bun binary under `bun test`), so tests always reflect the current source
@@ -115,6 +116,8 @@ describe('create', () => {
     expect(conf).toHaveProperty('productName');
     expect(conf).toHaveProperty('identifier');
     expect(conf.app?.withGlobalTauri).toBe(true);
+    expect(conf.app?.windows?.[0]?.center).toBeTrue();
+    expect(conf.build?.additionalWatchFolders).toContain('../config.json');
   });
 
   test('generates valid JSON for package.json and capabilities', () => {
@@ -157,6 +160,58 @@ describe('create', () => {
     expect(lib.length).toBeGreaterThan(5000);
     expect(lib).toContain('launch_game');
     expect(lib).toContain('run_setup');
+  });
+
+  test('ships Microsoft account authentication', () => {
+    cli('create', dir);
+    const lib = readFileSync(join(dir, 'src-anvil/src/lib.rs'), 'utf8');
+    const api = readFileSync(join(dir, 'src/api.js'), 'utf8');
+    const frontend = readFileSync(join(dir, 'src/index.html'), 'utf8');
+    const config = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'));
+
+    expect(lib).toContain('microsoft_session_login');
+    expect(lib).toContain('microsoft_authorization_code');
+    expect(lib).toContain('app.emit("installing", ())');
+    expect(lib).toContain('app.emit("reset", ())');
+    expect(lib).toContain('app.emit("install", ())');
+    expect(lib).toContain('microsoft_session_start');
+    expect(lib).toContain('microsoft_session_restore');
+    expect(lib).toContain('auth_xuid');
+    expect(lib).toContain('clientid');
+    expect(api).toContain("signIn: () => _invoke('microsoft_session_login')");
+    expect(api).toContain("install: (cb) => _listen('install', cb)");
+    expect(frontend).toContain('MC.microsoftSession.signIn()');
+    expect(config).toHaveProperty('microsoft-client-id');
+  });
+
+  test('configures native window size and DevTools through Tauri', () => {
+    cli('create', dir);
+    const configPath = join(dir, 'config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    expect(config.window.width).toBe(1000);
+    expect(config.window.height).toBe(660);
+    expect(config.window.shadow).toBeTrue();
+    expect(config.window.transparent).toBeFalse();
+    expect(config.window.devtools).toBeTrue();
+    config.window.width = 1200;
+    config.window.height = 720;
+    config.window.shadow = false;
+    config.window.transparent = true;
+    config.window.devtools = false;
+    writeFileSync(configPath, JSON.stringify(config));
+
+    const override = createWindowOverride(dir) as {
+      app: { windows: Array<Record<string, unknown>> };
+    };
+    expect(override.app.windows[0].devtools).toBeFalse();
+    expect(override.app.windows[0].width).toBe(1200);
+    expect(override.app.windows[0].height).toBe(720);
+    expect(override.app.windows[0].shadow).toBeFalse();
+    expect(override.app.windows[0].transparent).toBeTrue();
+    expect(override.build.additionalWatchFolders).toContain('../config.json');
+    expect(override.build.frontendDist).toBe('../src');
+    const lib = readFileSync(join(dir, 'src-anvil/src/lib.rs'), 'utf8');
+    expect(lib).toContain('SetAreDevToolsEnabled(false)');
   });
 
   test('api.js references MC object', () => {
@@ -224,6 +279,7 @@ describe('create --template', () => {
     expect(conf.build?.devUrl).toBe('http://localhost:5173');
     expect(conf.build?.frontendDist).toBe('../dist');
     expect(conf.build?.beforeDevCommand).toBe('npm run dev:ui');
+    expect(conf.build?.additionalWatchFolders).toContain('../config.json');
   });
 
   test('vue-js generates an App.vue project', () => {
@@ -252,6 +308,7 @@ describe('create --template', () => {
     );
     expect(conf.build?.frontendDist).toBe('../src');
     expect(conf.build?.devUrl).toBeUndefined();
+    expect(conf.build?.additionalWatchFolders).toContain('../config.json');
   });
 });
 
@@ -400,5 +457,24 @@ describe('--version', () => {
 
   test('-v alias works', () => {
     expect(cli('-v').status).toBe(0);
+  });
+});
+
+describe('config schema', () => {
+  test('uses the Microsoft session name instead of Mojang', () => {
+    const schema = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, '../src/client/config.schema.json'),
+        'utf8',
+      ),
+    );
+    expect(schema.properties.session.enum).toContain('microsoft');
+    expect(schema.properties.session.enum).not.toContain('mojang');
+    expect(schema.properties).toHaveProperty('microsoft-client-id');
+    expect(schema.properties.window.properties.width.default).toBe(1000);
+    expect(schema.properties.window.properties.height.default).toBe(660);
+    expect(schema.properties.window.properties.shadow.default).toBeTrue();
+    expect(schema.properties.window.properties.transparent.default).toBeFalse();
+    expect(schema.properties.window.properties.devtools.default).toBeTrue();
   });
 });

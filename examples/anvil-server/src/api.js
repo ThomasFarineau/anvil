@@ -71,6 +71,9 @@ export const MC = {
 
   // ── Events ─────────────────────────────────────────────────
   on: {
+    install: (cb) => _listen('install', cb),
+    installing: (cb) => _listen('installing', cb),
+    reset: (cb) => _listen('reset', cb),
     setupProgress: (cb) => _listen('setup:progress', (e) => cb(e.payload)),
     setupDone: (cb) => _listen('setup:done', cb),
     gameStarting: (cb) => _listen('game:starting', (e) => cb(e.payload)),

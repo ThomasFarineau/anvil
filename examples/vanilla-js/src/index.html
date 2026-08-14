@@ -56,7 +56,29 @@
         MC.getInitStatus(),
       ]);
 
-      if (settings.username) {
+      let microsoftReady = false;
+      const microsoftRestore =
+        config.session === 'microsoft'
+          ? MC.microsoftSession
+              .restore()
+              .then((session) => {
+                if (!session) return;
+                microsoftReady = true;
+                document.getElementById('username-input').value =
+                  session.username;
+                updateButtons();
+              })
+              .catch((e) => {
+                document.getElementById('game-status').textContent =
+                  `Microsoft: ${e}`;
+              })
+          : Promise.resolve();
+
+      if (config.session === 'microsoft') {
+        const input = document.getElementById('username-input');
+        input.readOnly = true;
+        input.placeholder = 'Microsoft account';
+      } else if (settings.username) {
         document.getElementById('username-input').value = settings.username;
       }
 
@@ -147,7 +169,9 @@
       function updateButtons() {
         const username = document.getElementById('username-input').value.trim();
         document.querySelectorAll('.instance-btn').forEach((btn) => {
-          if (!btn.dataset.running) btn.disabled = !username;
+          if (!btn.dataset.running) {
+            btn.disabled = config.session !== 'microsoft' && !username;
+          }
         });
       }
 
@@ -157,11 +181,34 @@
           await MC.stop(instanceId).catch(() => {});
           return;
         }
-        const username = document.getElementById('username-input').value.trim();
-        if (!username) return;
-        const settings = await MC.getSettings();
-        await MC.saveSettings({ ...settings, username });
         try {
+          await microsoftRestore;
+          if (config.session === 'microsoft') {
+            const restored = await MC.microsoftSession.restore();
+            if (restored) {
+              microsoftReady = true;
+              document.getElementById('username-input').value =
+                restored.username;
+            } else {
+              microsoftReady = false;
+            }
+          }
+          if (config.session === 'microsoft' && !microsoftReady) {
+            document.getElementById('game-status').textContent =
+              'Opening Microsoft sign-in…';
+            const session = await MC.microsoftSession.signIn();
+            microsoftReady = true;
+            document.getElementById('username-input').value = session.username;
+            document.getElementById('game-status').textContent =
+              `Connected as ${session.username}.`;
+            updateButtons();
+          }
+          const username = document
+            .getElementById('username-input')
+            .value.trim();
+          if (!username) return;
+          const settings = await MC.getSettings();
+          await MC.saveSettings({ ...settings, username });
           await MC.verify(instanceId);
           await MC.play(instanceId);
         } catch (e) {

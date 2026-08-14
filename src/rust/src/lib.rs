@@ -3,8 +3,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use chrono::Local;
-use futures_util::StreamExt;
+use chrono::{Local, Utc};
+use futures_util::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -12,6 +12,20 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const MANIFEST_URL:  &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const RESOURCES_URL: &str = "https://resources.download.minecraft.net/";
+const MICROSOFT_DEVICE_CODE_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
+const MICROSOFT_TOKEN_URL:       &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+const MICROSOFT_LOGIN_WINDOW:    &str = "anvil-microsoft-login";
+const MICROSOFT_AUTHORIZE_URL:   &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
+// URI de redirection standard des applications de bureau. La page n'est jamais
+// chargée : la navigation est interceptée pour en extraire le code.
+const MICROSOFT_REDIRECT_URI:    &str = "https://login.microsoftonline.com/common/oauth2/nativeclient";
+const XBOX_USER_AUTH_URL:        &str = "https://user.auth.xboxlive.com/user/authenticate";
+const XSTS_AUTH_URL:             &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
+// Endpoint public des launchers tiers. /launcher/login est réservé au
+// launcher officiel et répond 403 pour tout autre client_id.
+const MINECRAFT_LOGIN_URL:       &str = "https://api.minecraftservices.com/authentication/login_with_xbox";
+const MINECRAFT_PROFILE_URL:     &str = "https://api.minecraftservices.com/minecraft/profile";
+const MICROSOFT_SCOPE:           &str = "XboxLive.SignIn XboxLive.offline_access";
 
 // ── Config (config.json) ──────────────────────────────────────────────────────
 
@@ -46,16 +60,35 @@ pub struct InstanceConfig {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WindowConfig {
+    #[serde(default = "default_true")]          pub decorations: bool,
+    #[serde(default = "default_true")]          pub resizable: bool,
+    #[serde(default = "default_window_width")]  pub width: u32,
+    #[serde(default = "default_window_height")] pub height: u32,
+    #[serde(default = "default_true")]          pub shadow: bool,
+    #[serde(default)]                            pub transparent: bool,
+    #[serde(default = "default_true")]          pub devtools: bool,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self { decorations: true, resizable: true, width: default_window_width(),
+               height: default_window_height(), shadow: true, transparent: false, devtools: true }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LauncherConfig {
     #[serde(default)]                          pub identifier:         String,
     #[serde(default = "default_data_folder")] pub data_folder:        String,
     #[serde(default = "default_java")]         pub java_version:       u8,
     #[serde(default)]                          pub update_url:         String,
     #[serde(default = "default_app_name")]     pub app_name:           String,
-    #[serde(default = "default_true")]         pub window_decorations: bool,
-    #[serde(default = "default_true")]         pub window_resizable:   bool,
+    #[serde(default)]                           pub window:             WindowConfig,
     #[serde(default)]                          pub logo:               String,
     #[serde(default = "default_session")]      pub session:            String,
+    #[serde(rename = "microsoft-client-id", default)]
+                                                pub microsoft_client_id: String,
     #[serde(rename = "anvil-server", default)] pub anvil_server:       String,
     #[serde(rename = "anvil-key", default)]    pub anvil_key:          String,
     #[serde(default)]                          pub instances:          Vec<InstanceConfig>,
@@ -67,6 +100,8 @@ fn default_java()        -> u8     { 21 }
 fn default_port()        -> u16    { 25565 }
 fn default_true()        -> bool   { true }
 fn default_session()     -> String { "none".into() }
+fn default_window_width()  -> u32  { 1000 }
+fn default_window_height() -> u32  { 660 }
 
 impl Default for LauncherConfig {
     fn default() -> Self {
@@ -76,10 +111,10 @@ impl Default for LauncherConfig {
             java_version:       default_java(),
             update_url:         String::new(),
             app_name:           default_app_name(),
-            window_decorations: true,
-            window_resizable:   true,
+            window:             WindowConfig::default(),
             logo:               String::new(),
             session:            default_session(),
+            microsoft_client_id: String::new(),
             anvil_server:       String::new(),
             anvil_key:          String::new(),
             instances:          Vec::new(),
@@ -93,14 +128,21 @@ impl Default for LauncherConfig {
 pub struct Settings {
     #[serde(default)] pub username:     String,
     #[serde(default)] pub launcher_dir: Option<String>,
-    #[serde(default = "default_memory")] pub max_memory: u32,
+    #[serde(default = "default_min_memory")] pub min_memory: u32,
+    #[serde(default = "default_memory")]     pub max_memory: u32,
 }
 
-fn default_memory() -> u32 { 2048 }
+fn default_min_memory() -> u32 { 1024 }
+fn default_memory()     -> u32 { 2048 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { username: String::new(), launcher_dir: None, max_memory: default_memory() }
+        Self {
+            username:     String::new(),
+            launcher_dir: None,
+            min_memory:   default_min_memory(),
+            max_memory:   default_memory(),
+        }
     }
 }
 
@@ -111,6 +153,40 @@ pub struct CustomSession {
     pub username:     String,
     pub uuid:         String,
     pub access_token: String,
+    #[serde(default)] pub xuid:      String,
+    #[serde(default)] pub client_id: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct MicrosoftDeviceCode {
+    pub user_code:        String,
+    pub verification_uri: String,
+    pub expires_in:       u64,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct MicrosoftLoginResult {
+    pub username: String,
+    pub uuid:     String,
+}
+
+#[derive(Clone, Debug)]
+struct MicrosoftPendingLogin {
+    client_id:   String,
+    device_code: String,
+    interval:    u64,
+    expires_at:  i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct MicrosoftAuthCache {
+    client_id:              String,
+    refresh_token:          String,
+    minecraft_access_token: String,
+    minecraft_expires_at:   i64,
+    username:               String,
+    uuid:                   String,
+    #[serde(default)] xuid: String,
 }
 
 // ── État global ───────────────────────────────────────────────────────────────
@@ -120,6 +196,7 @@ pub struct AppState {
     pub settings:       Mutex<Settings>,
     pub data_dir:       PathBuf,
     pub custom_session: Mutex<Option<CustomSession>>,
+    microsoft_login:    Mutex<Option<MicrosoftPendingLogin>>,
     pub running:        Mutex<HashMap<String, std::sync::Arc<Mutex<std::process::Child>>>>,
 }
 
@@ -329,10 +406,11 @@ fn version_folder(inst: &InstanceConfig) -> String {
 }
 
 fn is_instance_installed(launcher_dir: &Path, inst: &InstanceConfig) -> bool {
-    let ver_id = version_folder(inst);
-    shared_game_dir(launcher_dir)
-        .join("versions").join(&ver_id).join(format!("{ver_id}.json"))
-        .exists()
+    // Un fichier de version seul ne suffit pas : une configuration interrompue
+    // peut laisser le JSON sur disque alors que le client ou des bibliothèques
+    // manquent encore. Dans ce cas, on repasse par l'installation (les fichiers
+    // déjà présents restent servis depuis le cache).
+    verify_instance(launcher_dir, inst).is_ok()
 }
 
 // ── Logs ──────────────────────────────────────────────────────────────────────
@@ -350,6 +428,16 @@ fn launcher_log(log_dir: &Path, msg: &str) {
 // ── Chargement config.json ────────────────────────────────────────────────────
 
 fn find_config_json(app: &AppHandle) -> LauncherConfig {
+    // In development, the project file is the source of truth. Tauri also
+    // copies bundle resources into target/debug, but that copy may lag behind
+    // config.json when the dev command is restarted or the file is edited.
+    #[cfg(debug_assertions)]
+    {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("config.json");
+        if let Ok(s) = std::fs::read_to_string(&p) {
+            if let Ok(cfg) = serde_json::from_str::<LauncherConfig>(&s) { return cfg; }
+        }
+    }
     if let Ok(res) = app.path().resource_dir() {
         let p = res.join("config.json");
         if let Ok(s) = std::fs::read_to_string(&p) {
@@ -424,7 +512,11 @@ fn resolve_remote_instances(config: &mut LauncherConfig, data_dir: &Path, logs: 
             .build() else { return };
 
         match fetch_remote_instances(&client, config, &server).await {
-            Ok(remote) => {
+            Ok(mut remote) => {
+                // Un identifiant est la clé d'une instance : ne jamais afficher
+                // deux fois la même entrée si le serveur renvoie un doublon.
+                let mut seen = std::collections::HashSet::new();
+                remote.retain(|inst| seen.insert(inst.id.clone()));
                 launcher_log(logs, &format!(
                     "anvil-server: {} instance(s) résolue(s)", remote.len()
                 ));
@@ -457,6 +549,28 @@ fn save_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(p) = path.parent() { std::fs::create_dir_all(p).map_err(|e| e.to_string())?; }
     std::fs::write(path, serde_json::to_string_pretty(value).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())
+}
+
+#[cfg(all(windows, debug_assertions))]
+fn disable_native_devtools(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|webview| unsafe {
+        if let Ok(core) = webview.controller().CoreWebView2() {
+            if let Ok(settings) = core.Settings() {
+                let _ = settings.SetAreDevToolsEnabled(false);
+            }
+        }
+    });
+}
+
+fn save_private_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    save_json(path, value)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 // ── Utilitaires Minecraft ─────────────────────────────────────────────────────
@@ -511,6 +625,7 @@ fn dedup_libraries(libs: Vec<LibEntry>) -> Vec<LibEntry> {
 
 async fn http_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
     client.get(url).send().await.map_err(|e| format!("GET {url}: {e}"))?
+        .error_for_status().map_err(|e| format!("GET {url}: {e}"))?
         .bytes().await.map_err(|e| e.to_string()).map(|b| b.to_vec())
 }
 
@@ -605,6 +720,15 @@ fn save_settings(state: State<AppState>, settings: Settings) -> Result<(), Strin
     save_json(&state.data_dir.join("settings.json"), &settings)?;
     *state.settings.lock().unwrap() = settings;
     Ok(())
+}
+
+/// RAM physique totale de la machine, en Mo — sert à borner les réglages
+/// mémoire côté interface.
+#[tauri::command]
+fn get_system_memory() -> u32 {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    (sys.total_memory() / 1024 / 1024) as u32
 }
 
 #[tauri::command]
@@ -750,16 +874,14 @@ async fn install_vanilla(
     let natives_dir = ver_dir.join("natives");
     std::fs::create_dir_all(&natives_dir).map_err(|e| e.to_string())?;
     let libs: Vec<&LibEntry> = ver.libraries.iter().filter(|l| lib_applies(l)).collect();
-    for (i, lib) in libs.iter().enumerate() {
-        if i % 5 == 0 {
-            prog!(6 + i * 44 / libs.len().max(1), format!("Bibliothèques ({}/{})", i + 1, libs.len()));
-        }
+    let mut library_jobs = Vec::new();
+    for lib in &libs {
         if let Some(dls) = &lib.downloads {
             if let Some(art) = &dls.artifact {
                 if !art.url.is_empty() {
                     let rel = art.path.as_deref().filter(|p| !p.is_empty())
                         .map(|p| p.to_string()).unwrap_or_else(|| maven_path(&lib.name));
-                    save_if_missing(client, &art.url, &libs_dir.join(&rel)).await?;
+                    library_jobs.push((art.url.clone(), libs_dir.join(rel)));
                 }
             }
             if let Some(cls) = &dls.classifiers {
@@ -771,6 +893,8 @@ async fn install_vanilla(
             }
         }
     }
+    prog!(25, format!("Bibliothèques ({} fichiers)...", library_jobs.len()));
+    save_many_if_missing(client, library_jobs).await?;
 
     prog!(50, "Index des assets...");
     let assets_dir = game_dir.join("assets");
@@ -782,16 +906,13 @@ async fn install_vanilla(
             &std::fs::read_to_string(&idx_path).map_err(|e| e.to_string())?
         ).map_err(|e| e.to_string())?;
         let objs: Vec<_> = index.objects.values().collect();
-        for (i, obj) in objs.iter().enumerate() {
-            if i % 100 == 0 {
-                prog!(50 + i * 29 / objs.len().max(1), format!("Assets ({}/{})", i, objs.len()));
-            }
+        let asset_jobs: Vec<_> = objs.iter().map(|obj| {
             let prefix = &obj.hash[..2];
-            save_if_missing(client,
-                &format!("{RESOURCES_URL}{prefix}/{}", obj.hash),
-                &assets_dir.join("objects").join(prefix).join(&obj.hash),
-            ).await?;
-        }
+            (format!("{RESOURCES_URL}{prefix}/{}", obj.hash),
+             assets_dir.join("objects").join(prefix).join(&obj.hash))
+        }).collect();
+        prog!(50, format!("Assets ({} fichiers)...", asset_jobs.len()));
+        save_many_if_missing(client, asset_jobs).await?;
     }
     Ok(())
 }
@@ -1037,8 +1158,94 @@ fn open_instance_folder(state: State<AppState>, instance_id: String) -> Result<(
     open_in_file_manager(&instance_data_dir(&launcher_dir, inst))
 }
 
+/// Ouvre le sélecteur de dossier natif. Résout sur le chemin choisi, ou sur
+/// `None` si l'utilisateur annule.
+/// Vide le dossier du launcher sans le supprimer : jeu, Java, instances et
+/// leurs sauvegardes. Opération irréversible, réservée à la réinstallation.
+#[tauri::command]
+fn reset_launcher_dir(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    if !state.running.lock().unwrap().is_empty() {
+        return Err("Fermez le jeu avant de réinitialiser l'installation.".into());
+    }
+    let settings = state.settings.lock().unwrap().clone();
+    let dir      = get_launcher_dir(&settings, &state.config);
+
+    // Garde-fous : ne jamais vider une racine, un dossier utilisateur ou un
+    // chemin trop court — une valeur erronée dans settings.json effacerait
+    // sinon bien plus que le launcher.
+    if dir.parent().is_none() || dir.components().count() < 3 {
+        return Err(format!("Chemin d'installation refusé : {}", dir.display()));
+    }
+    for protected in [dirs::home_dir(), dirs::data_dir(), dirs::data_local_dir(),
+                      dirs::document_dir(), dirs::desktop_dir()].into_iter().flatten() {
+    if dir == protected {
+            return Err(format!("Chemin d'installation refusé : {}", dir.display()));
+        }
+    }
+    let _ = app.emit("reset", ());
+    if !dir.exists() {
+        let _ = app.emit("install", ());
+        return Ok(());
+    }
+    let entries = std::fs::read_dir(&dir)
+        .map_err(|e| format!("Lecture de {} : {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Lecture de {} : {e}", dir.display()))?;
+        let path  = entry.path();
+        let result = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        result.map_err(|e| format!("Suppression de {} : {e}", path.display()))?;
+    }
+    launcher_log(&log_dir(&dir), "Dossier du launcher réinitialisé");
+    let _ = app.emit("install", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn open_logs_folder(state: State<AppState>) -> Result<(), String> {
+    let settings = state.settings.lock().unwrap().clone();
+    let launcher_dir = get_launcher_dir(&settings, &state.config);
+    open_in_file_manager(&log_dir(&launcher_dir))
+}
+
+/// Télécharge plusieurs fichiers indépendants avec une limite de concurrence.
+async fn save_many_if_missing(
+    client: &reqwest::Client,
+    jobs: Vec<(String, PathBuf)>,
+) -> Result<(), String> {
+    futures_util::stream::iter(jobs.into_iter().map(|(url, dest)| async move {
+        save_if_missing(client, &url, &dest).await
+    }))
+    .buffer_unordered(8)
+    .try_collect::<Vec<()>>()
+    .await
+    .map(|_| ())
+}
+
+#[tauri::command]
+async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut dialog = app.dialog().file();
+    if let Some(dir) = start.filter(|d| !d.trim().is_empty()) {
+        dialog = dialog.set_directory(dir);
+    }
+    // Le rappel est appelé depuis le thread UI : on attend le résultat hors
+    // du thread courant pour ne pas bloquer la boucle d'événements.
+    let (tx, rx) = std::sync::mpsc::channel();
+    dialog.pick_folder(move |path| { let _ = tx.send(path); });
+    let picked = tauri::async_runtime::spawn_blocking(move || rx.recv())
+        .await
+        .map_err(|e| format!("Sélection du dossier : {e}"))?
+        .map_err(|_| "Sélection du dossier : boîte de dialogue interrompue.".to_string())?;
+    Ok(picked.map(|p| p.to_string()))
+}
+
 #[tauri::command]
 async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let _ = app.emit("installing", ());
     let settings     = state.settings.lock().unwrap().clone();
     let launcher_dir = get_launcher_dir(&settings, &state.config);
     let cfg          = state.config.clone();
@@ -1060,7 +1267,11 @@ async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
 
     // Instances
     let game_dir = shared_game_dir(&launcher_dir);
-    let client   = reqwest::Client::builder().user_agent("HomeLauncher/1.0").build()
+    let client   = reqwest::Client::builder()
+        .user_agent("HomeLauncher/1.0")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
         .map_err(|e| e.to_string())?;
 
     for inst in &cfg.instances {
@@ -1093,6 +1304,7 @@ async fn run_setup(app: AppHandle, state: State<'_, AppState>) -> Result<(), Str
                 Err(e) => Err(e),
             }
         };
+        let result = result.and_then(|_| verify_instance(&launcher_dir, inst));
         match result {
             Ok(_) => {
                 let _ = app.emit("setup:progress", SetupProgress {
@@ -1274,21 +1486,25 @@ async fn launch_game(
     let ver_id   = version_folder(&inst);
     let ver      = read_version_chain(&game_dir, &ver_id)?;
 
-    let offline_auth = |name: &str| -> (String, String, String, &'static str) {
+    let offline_auth = |name: &str| -> (String, String, String, &'static str, String, String) {
         let h = fnv64(name);
         let uid = format!("{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
             (h >> 32) as u32, (h >> 16) as u16, h as u16 & 0x0fff,
             0x8000u16 | ((h >> 48) as u16 & 0x3fff), h & 0x0000_ffff_ffff);
-        (name.to_string(), uid, "0".into(), "offline")
+        (name.to_string(), uid, "0".into(), "offline", String::new(), String::new())
     };
 
     let fallback_name = if settings.username.is_empty() { "Player".to_string() } else { settings.username.clone() };
-    let (username, uuid, access_token, user_type) = match state.config.session.as_str() {
-        "custom" => {
+    let (username, uuid, access_token, user_type, auth_xuid, client_id) = match state.config.session.as_str() {
+        "custom" | "microsoft" => {
             let guard = state.custom_session.lock().unwrap();
             match &*guard {
-                Some(s) => (s.username.clone(), s.uuid.clone(), s.access_token.clone(), "msa"),
-                None    => offline_auth(&fallback_name),
+                Some(s) => (
+                    s.username.clone(), s.uuid.clone(), s.access_token.clone(), "msa",
+                    s.xuid.clone(), s.client_id.clone(),
+                ),
+                None if state.config.session == "custom" => offline_auth(&fallback_name),
+                None => return Err("Aucune session Microsoft active — connectez-vous d'abord.".into()),
             }
         },
         // La session est gérée par le anvil-server : pas de fallback offline,
@@ -1296,10 +1512,16 @@ async fn launch_game(
         "anvil-session" => {
             let guard = state.custom_session.lock().unwrap();
             match &*guard {
-                Some(s) => (s.username.clone(), s.uuid.clone(), s.access_token.clone(), "msa"),
+                Some(s) => (
+                    s.username.clone(), s.uuid.clone(), s.access_token.clone(), "msa",
+                    s.xuid.clone(), s.client_id.clone(),
+                ),
                 None    => return Err("Aucune session active — connectez-vous d'abord.".into()),
             }
         },
+        "mojang" => return Err(
+            "Le mode 'mojang' a été remplacé par 'microsoft' dans config.json.".into(),
+        ),
         _ => offline_auth(&fallback_name),
     };
 
@@ -1341,14 +1563,19 @@ async fn launch_game(
         ("assets_index_name", ver.assets.clone()),
         ("auth_uuid",         uuid.clone()),
         ("auth_access_token", access_token.clone()),
+        ("auth_xuid",         auth_xuid),
+        ("clientid",          client_id),
         ("user_type",         user_type.into()),
         ("version_type",      "release".into()),
         ("resolution_width",  "854".into()),
         ("resolution_height", "480".into()),
     ]);
 
-    // Seul arg non fourni par le JSON de version
-    let mut cmd: Vec<String> = vec![format!("-Xmx{}M", settings.max_memory)];
+    // Seuls args non fournis par le JSON de version
+    let mut cmd: Vec<String> = vec![
+        format!("-Xms{}M", settings.min_memory.min(settings.max_memory)),
+        format!("-Xmx{}M", settings.max_memory),
+    ];
 
     if let Some(args) = &ver.arguments {
         cmd.extend(extract_args(&args.jvm, &vars));
@@ -1522,6 +1749,476 @@ async fn do_update(app: AppHandle, url: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Session Microsoft ─────────────────────────────────────────────────────────
+
+fn microsoft_session_path(data_dir: &Path) -> PathBuf { data_dir.join("microsoft_session.json") }
+
+fn microsoft_client_id(cfg: &LauncherConfig) -> Result<&str, String> {
+    let client_id = cfg.microsoft_client_id.trim();
+    if client_id.is_empty() {
+        return Err("Configurez 'microsoft-client-id' dans config.json avant d'utiliser la session Microsoft.".into());
+    }
+    Ok(client_id)
+}
+
+fn microsoft_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("AnvilLauncher/1.0")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+async fn microsoft_json(
+    response: reqwest::Response,
+    context:  &str,
+) -> Result<serde_json::Value, String> {
+    let status = response.status();
+    let text = response.text().await.map_err(|e| format!("{context} : réponse illisible ({e})"))?;
+    let body: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("{context} : réponse invalide ({e})"))?;
+    if status.is_success() { return Ok(body) }
+
+    let detail = body["error_description"].as_str()
+        .or_else(|| body["Message"].as_str())
+        .or_else(|| body["message"].as_str())
+        .or_else(|| body["errorMessage"].as_str())
+        .or_else(|| body["error"].as_str())
+        .unwrap_or("erreur inconnue");
+    Err(format!("{context} ({status}) : {detail}"))
+}
+
+fn open_external_url(url: &str) {
+    if !url.starts_with("https://") { return }
+    let cmd = if cfg!(target_os = "windows") { "explorer" }
+              else if cfg!(target_os = "macos") { "open" }
+              else { "xdg-open" };
+    let _ = std::process::Command::new(cmd).arg(url).spawn();
+}
+
+async fn microsoft_sleep(seconds: u64) {
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+    }).await;
+}
+
+/// Échange le jeton Microsoft contre les jetons Xbox/XSTS puis contre un
+/// jeton Minecraft, et récupère le profil Java associé.
+async fn minecraft_session_from_microsoft(
+    client:           &reqwest::Client,
+    microsoft_token:  &str,
+    client_id:        &str,
+) -> Result<(CustomSession, i64), String> {
+    let xbox = microsoft_json(
+        client.post(XBOX_USER_AUTH_URL)
+            .header("x-xbl-contract-version", "1")
+            .json(&serde_json::json!({
+                "Properties": {
+                    "AuthMethod": "RPS",
+                    "SiteName": "user.auth.xboxlive.com",
+                    "RpsTicket": format!("d={microsoft_token}"),
+                },
+                "RelyingParty": "http://auth.xboxlive.com",
+                "TokenType": "JWT",
+            }))
+            .send().await.map_err(|e| format!("Connexion Xbox : {e}"))?,
+        "Connexion Xbox",
+    ).await?;
+    let xbox_token = xbox["Token"].as_str()
+        .ok_or_else(|| "Connexion Xbox : jeton absent de la réponse.".to_string())?;
+
+    let xsts_response = client.post(XSTS_AUTH_URL)
+        .header("x-xbl-contract-version", "1")
+        .json(&serde_json::json!({
+            "Properties": { "SandboxId": "RETAIL", "UserTokens": [xbox_token] },
+            "RelyingParty": "rp://api.minecraftservices.com/",
+            "TokenType": "JWT",
+        }))
+        .send().await.map_err(|e| format!("Autorisation Xbox : {e}"))?;
+    let xsts_status = xsts_response.status();
+    let xsts_text = xsts_response.text().await
+        .map_err(|e| format!("Autorisation Xbox : réponse illisible ({e})"))?;
+    let xsts: serde_json::Value = serde_json::from_str(&xsts_text)
+        .map_err(|e| format!("Autorisation Xbox : réponse invalide ({e})"))?;
+    if !xsts_status.is_success() {
+        let message = match xsts["XErr"].as_i64() {
+            Some(2148916233) => "Ce compte Microsoft ne possède pas de profil Xbox Live.",
+            Some(2148916235) => "Xbox Live n'est pas disponible dans votre pays.",
+            Some(2148916236) => "Ce compte Microsoft doit fournir une preuve d'âge.",
+            Some(2148916238) => "Ce compte mineur doit être rattaché à une famille Microsoft.",
+            _ => "L'autorisation Xbox a été refusée.",
+        };
+        return Err(message.into());
+    }
+    let xsts_token = xsts["Token"].as_str()
+        .ok_or_else(|| "Autorisation Xbox : jeton absent de la réponse.".to_string())?;
+    let user_hash = xsts["DisplayClaims"]["xui"][0]["uhs"].as_str()
+        .ok_or_else(|| "Autorisation Xbox : identifiant utilisateur absent.".to_string())?;
+    let xuid = xsts["DisplayClaims"]["xui"][0]["xid"].as_str()
+        .unwrap_or_default()
+        .to_string();
+
+    let minecraft = microsoft_json(
+        client.post(MINECRAFT_LOGIN_URL)
+            .json(&serde_json::json!({
+                "identityToken": format!("XBL3.0 x={user_hash};{xsts_token}"),
+            }))
+            .send().await.map_err(|e| format!("Connexion Minecraft : {e}"))?,
+        "Connexion Minecraft",
+    ).await?;
+    let access_token = minecraft["access_token"].as_str()
+        .ok_or_else(|| "Connexion Minecraft : jeton absent de la réponse.".to_string())?
+        .to_string();
+    let expires_in = minecraft["expires_in"].as_i64().unwrap_or(3600);
+
+    let profile = microsoft_json(
+        client.get(MINECRAFT_PROFILE_URL)
+            .bearer_auth(&access_token)
+            .send().await.map_err(|e| format!("Profil Minecraft : {e}"))?,
+        "Profil Minecraft Java",
+    ).await?;
+    let username = profile["name"].as_str()
+        .ok_or_else(|| "Ce compte ne possède pas de profil Minecraft Java.".to_string())?
+        .to_string();
+    let uuid = profile["id"].as_str()
+        .ok_or_else(|| "Profil Minecraft : UUID absent de la réponse.".to_string())?
+        .to_string();
+
+    Ok((CustomSession {
+        username,
+        uuid,
+        access_token,
+        xuid,
+        client_id: client_id.to_string(),
+    }, Utc::now().timestamp() + expires_in))
+}
+
+fn activate_microsoft_session(
+    state:         &AppState,
+    client_id:     &str,
+    refresh_token: String,
+    session:       CustomSession,
+    expires_at:    i64,
+) -> Result<MicrosoftLoginResult, String> {
+    let cache = MicrosoftAuthCache {
+        client_id: client_id.to_string(),
+        refresh_token,
+        minecraft_access_token: session.access_token.clone(),
+        minecraft_expires_at: expires_at,
+        username: session.username.clone(),
+        uuid: session.uuid.clone(),
+        xuid: session.xuid.clone(),
+    };
+    save_private_json(&microsoft_session_path(&state.data_dir), &cache)?;
+    let result = MicrosoftLoginResult { username: session.username.clone(), uuid: session.uuid.clone() };
+    *state.custom_session.lock().unwrap() = Some(session);
+    Ok(result)
+}
+
+// ── Connexion Microsoft en fenêtre interne (authorization code + PKCE) ────────
+
+fn base64_url(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn random_oauth_token() -> Result<String, String> {
+    let mut raw = [0u8; 32];
+    getrandom::getrandom(&mut raw).map_err(|e| format!("Génération OAuth : {e}"))?;
+    Ok(base64_url(&raw))
+}
+
+/// Génère le couple (code_verifier, code_challenge) du flux PKCE.
+fn pkce_pair() -> Result<(String, String), String> {
+    use sha2::{Digest, Sha256};
+    let verifier = random_oauth_token()?;
+    let challenge = base64_url(&Sha256::digest(verifier.as_bytes()));
+    Ok((verifier, challenge))
+}
+
+/// Ouvre la page de connexion Microsoft dans une fenêtre dédiée et attend le
+/// code d'autorisation. La page de redirection n'est jamais chargée : la
+/// navigation est interceptée, le code lu dans l'URL, et la fenêtre fermée.
+async fn microsoft_authorization_code(
+    app:       &AppHandle,
+    client_id: &str,
+    challenge: &str,
+    state:     &str,
+) -> Result<String, String> {
+    // Évite de conserver une fenêtre OAuth orpheline après un double appel.
+    if let Some(existing) = app.get_webview_window(MICROSOFT_LOGIN_WINDOW) {
+        let _ = existing.close();
+    }
+    let mut url = tauri::Url::parse(MICROSOFT_AUTHORIZE_URL)
+        .map_err(|e| format!("Connexion Microsoft : URL invalide ({e})"))?;
+    url.query_pairs_mut()
+        .append_pair("client_id", client_id)
+        .append_pair("response_type", "code")
+        .append_pair("redirect_uri", MICROSOFT_REDIRECT_URI)
+        .append_pair("response_mode", "query")
+        .append_pair("scope", MICROSOFT_SCOPE)
+        .append_pair("code_challenge", challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("state", state)
+        .append_pair("prompt", "select_account");
+
+    // Un seul envoi possible : l'interception et la fermeture de la fenêtre
+    // sont deux chemins concurrents vers le même résultat.
+    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+    let tx_nav   = tx.clone();
+    let tx_close = tx.clone();
+    let expected_state = state.to_string();
+
+    let window = tauri::WebviewWindowBuilder::new(
+            app, MICROSOFT_LOGIN_WINDOW, tauri::WebviewUrl::External(url),
+        )
+        .title("Connectez-vous à votre compte Microsoft")
+        .inner_size(520.0, 700.0)
+        .min_inner_size(420.0, 560.0)
+        .center()
+        .focused(true)
+        .on_navigation(move |url| {
+            if !url.as_str().starts_with(MICROSOFT_REDIRECT_URI) {
+                return true;
+            }
+            let mut code  = None;
+            let mut error = None;
+            let mut returned_state = None;
+            for (key, value) in url.query_pairs() {
+                match key.as_ref() {
+                    "code"              => code  = Some(value.into_owned()),
+                    "error_description" => error = Some(value.into_owned()),
+                    "error" if error.is_none() => error = Some(value.into_owned()),
+                    "state"             => returned_state = Some(value.into_owned()),
+                    _ => {}
+                }
+            }
+            let outcome = if returned_state.as_deref() != Some(expected_state.as_str()) {
+                Err("Connexion Microsoft : état OAuth invalide.".to_string())
+            } else { match (code, error) {
+                (Some(code), _) => Ok(code),
+                (None, Some(e)) => Err(format!("Connexion Microsoft : {e}")),
+                _ => Err("Connexion Microsoft : réponse inattendue.".to_string()),
+            }};
+            if let Some(tx) = tx_nav.lock().unwrap().take() { let _ = tx.send(outcome); }
+            false   // la page de redirection n'a pas besoin d'être chargée
+        })
+        .build()
+        .map_err(|e| format!("Connexion Microsoft : fenêtre impossible à ouvrir ({e})"))?;
+
+    // Fermeture manuelle : sans ça, l'attente ne se terminerait jamais.
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            if let Some(tx) = tx_close.lock().unwrap().take() {
+                let _ = tx.send(Err("Connexion annulée.".to_string()));
+            }
+        }
+    });
+
+    let outcome = tauri::async_runtime::spawn_blocking(move || rx.recv())
+        .await
+        .map_err(|e| format!("Connexion Microsoft : {e}"))?
+        .map_err(|_| "Connexion Microsoft : fenêtre fermée.".to_string())?;
+
+    if let Some(win) = app.get_webview_window(MICROSOFT_LOGIN_WINDOW) {
+        let _ = win.close();
+    }
+    outcome
+}
+
+/// Connexion complète dans une fenêtre interne : aucun navigateur externe,
+/// aucun code à recopier.
+#[tauri::command]
+async fn microsoft_session_login(
+    app:   AppHandle,
+    state: State<'_, AppState>,
+) -> Result<MicrosoftLoginResult, String> {
+    if state.config.session != "microsoft" {
+        return Err("Le mode de session actif n'est pas 'microsoft'.".into());
+    }
+    let client_id = microsoft_client_id(&state.config)?.to_string();
+    let client = microsoft_http_client()?;
+    let (verifier, challenge) = pkce_pair()?;
+    let oauth_state = random_oauth_token()?;
+    let code = microsoft_authorization_code(&app, &client_id, &challenge, &oauth_state).await?;
+    let body = microsoft_json(
+        client.post(MICROSOFT_TOKEN_URL)
+            .form(&[
+                ("client_id",     client_id.as_str()),
+                ("grant_type",    "authorization_code"),
+                ("code",          code.as_str()),
+                ("redirect_uri",  MICROSOFT_REDIRECT_URI),
+                ("code_verifier", verifier.as_str()),
+                ("scope",         MICROSOFT_SCOPE),
+            ])
+            .send().await.map_err(|e| format!("Connexion Microsoft : {e}"))?,
+        "Connexion Microsoft",
+    ).await?;
+
+    let access_token = body["access_token"].as_str()
+        .ok_or_else(|| "Connexion Microsoft : jeton d'accès absent.".to_string())?;
+    let refresh_token = body["refresh_token"].as_str()
+        .ok_or_else(|| "Connexion Microsoft : jeton de rafraîchissement absent.".to_string())?
+        .to_string();
+
+    let (session, expires_at) =
+        minecraft_session_from_microsoft(&client, access_token, &client_id).await?;
+    activate_microsoft_session(&state, &client_id, refresh_token, session, expires_at)
+}
+
+#[tauri::command]
+async fn microsoft_session_start(state: State<'_, AppState>) -> Result<MicrosoftDeviceCode, String> {
+    if state.config.session != "microsoft" {
+        return Err("Le mode de session actif n'est pas 'microsoft'.".into());
+    }
+    let client_id = microsoft_client_id(&state.config)?.to_string();
+    let client = microsoft_http_client()?;
+    let body = microsoft_json(
+        client.post(MICROSOFT_DEVICE_CODE_URL)
+            .form(&[("client_id", client_id.as_str()), ("scope", MICROSOFT_SCOPE)])
+            .send().await.map_err(|e| format!("Connexion Microsoft : {e}"))?,
+        "Connexion Microsoft",
+    ).await?;
+
+    let device_code = body["device_code"].as_str()
+        .ok_or_else(|| "Connexion Microsoft : code d'appareil absent.".to_string())?;
+    let user_code = body["user_code"].as_str()
+        .ok_or_else(|| "Connexion Microsoft : code utilisateur absent.".to_string())?;
+    let verification_uri = body["verification_uri"].as_str()
+        .ok_or_else(|| "Connexion Microsoft : URL de validation absente.".to_string())?;
+    let expires_in = body["expires_in"].as_u64().unwrap_or(900);
+    let interval = body["interval"].as_u64().unwrap_or(5).max(1);
+
+    *state.microsoft_login.lock().unwrap() = Some(MicrosoftPendingLogin {
+        client_id,
+        device_code: device_code.to_string(),
+        interval,
+        expires_at: Utc::now().timestamp() + expires_in as i64,
+    });
+    open_external_url(verification_uri);
+    Ok(MicrosoftDeviceCode {
+        user_code: user_code.to_string(),
+        verification_uri: verification_uri.to_string(),
+        expires_in,
+    })
+}
+
+#[tauri::command]
+async fn microsoft_session_finish(state: State<'_, AppState>) -> Result<MicrosoftLoginResult, String> {
+    let pending = state.microsoft_login.lock().unwrap().take()
+        .ok_or_else(|| "Aucune connexion Microsoft n'est en attente.".to_string())?;
+    let client = microsoft_http_client()?;
+    let mut interval = pending.interval;
+
+    let (microsoft_token, refresh_token) = loop {
+        if Utc::now().timestamp() >= pending.expires_at {
+            return Err("Le code de connexion Microsoft a expiré. Recommencez la connexion.".into());
+        }
+        microsoft_sleep(interval).await;
+        let response = client.post(MICROSOFT_TOKEN_URL)
+            .form(&[
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("client_id", pending.client_id.as_str()),
+                ("device_code", pending.device_code.as_str()),
+            ])
+            .send().await.map_err(|e| format!("Connexion Microsoft : {e}"))?;
+        let status = response.status();
+        let body: serde_json::Value = response.json().await
+            .map_err(|e| format!("Connexion Microsoft : réponse invalide ({e})"))?;
+        if status.is_success() {
+            let access = body["access_token"].as_str()
+                .ok_or_else(|| "Connexion Microsoft : jeton absent.".to_string())?;
+            let refresh = body["refresh_token"].as_str()
+                .ok_or_else(|| "Connexion Microsoft : refresh token absent.".to_string())?;
+            break (access.to_string(), refresh.to_string());
+        }
+        match body["error"].as_str() {
+            Some("authorization_pending") => continue,
+            Some("slow_down") => { interval += 5; continue },
+            Some("authorization_declined") => return Err("Connexion Microsoft refusée par l'utilisateur.".into()),
+            Some("expired_token") => return Err("Le code de connexion Microsoft a expiré.".into()),
+            _ => {
+                let detail = body["error_description"].as_str().unwrap_or("erreur inconnue");
+                return Err(format!("Connexion Microsoft : {detail}"));
+            }
+        }
+    };
+
+    let (session, expires_at) = minecraft_session_from_microsoft(
+        &client, &microsoft_token, &pending.client_id,
+    ).await?;
+    activate_microsoft_session(&state, &pending.client_id, refresh_token, session, expires_at)
+}
+
+#[tauri::command]
+async fn microsoft_session_restore(state: State<'_, AppState>) -> Result<Option<MicrosoftLoginResult>, String> {
+    if state.config.session != "microsoft" {
+        return Err("Le mode de session actif n'est pas 'microsoft'.".into());
+    }
+    let path = microsoft_session_path(&state.data_dir);
+    let Some(cache) = std::fs::read_to_string(&path).ok()
+        .and_then(|s| serde_json::from_str::<MicrosoftAuthCache>(&s).ok())
+    else { return Ok(None) };
+    let client_id = microsoft_client_id(&state.config)?.to_string();
+    if cache.client_id != client_id {
+        std::fs::remove_file(&path).ok();
+        return Ok(None);
+    }
+
+    if cache.minecraft_expires_at > Utc::now().timestamp() + 60 {
+        let session = CustomSession {
+            username: cache.username,
+            uuid: cache.uuid,
+            access_token: cache.minecraft_access_token,
+            xuid: cache.xuid,
+            client_id: client_id.clone(),
+        };
+        let result = MicrosoftLoginResult { username: session.username.clone(), uuid: session.uuid.clone() };
+        *state.custom_session.lock().unwrap() = Some(session);
+        return Ok(Some(result));
+    }
+
+    let client = microsoft_http_client()?;
+    let response = client.post(MICROSOFT_TOKEN_URL)
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", client_id.as_str()),
+            ("refresh_token", cache.refresh_token.as_str()),
+            ("scope", MICROSOFT_SCOPE),
+        ])
+        .send().await.map_err(|e| format!("Renouvellement Microsoft : {e}"))?;
+    let status = response.status();
+    let body: serde_json::Value = response.json().await
+        .map_err(|e| format!("Renouvellement Microsoft : réponse invalide ({e})"))?;
+    if !status.is_success() {
+        if body["error"].as_str() == Some("invalid_grant") {
+            std::fs::remove_file(&path).ok();
+            *state.custom_session.lock().unwrap() = None;
+            return Ok(None);
+        }
+        let detail = body["error_description"].as_str().unwrap_or("erreur inconnue");
+        return Err(format!("Renouvellement Microsoft : {detail}"));
+    }
+    let microsoft_token = body["access_token"].as_str()
+        .ok_or_else(|| "Renouvellement Microsoft : jeton absent.".to_string())?;
+    let refresh_token = body["refresh_token"].as_str()
+        .unwrap_or(&cache.refresh_token)
+        .to_string();
+    let (session, expires_at) = minecraft_session_from_microsoft(
+        &client, microsoft_token, &client_id,
+    ).await?;
+    Ok(Some(activate_microsoft_session(&state, &client_id, refresh_token, session, expires_at)?))
+}
+
+#[tauri::command]
+fn microsoft_session_logout(state: State<'_, AppState>) -> Result<(), String> {
+    *state.microsoft_login.lock().unwrap() = None;
+    *state.custom_session.lock().unwrap() = None;
+    std::fs::remove_file(microsoft_session_path(&state.data_dir)).ok();
+    Ok(())
+}
+
 // ── Session anvil-server ──────────────────────────────────────────────────────
 
 #[derive(Serialize, Clone)]
@@ -1575,6 +2272,8 @@ async fn anvil_session_login(
             username:     body["username"].as_str().unwrap_or(&username).to_string(),
             uuid:         body["uuid"].as_str().unwrap_or_default().to_string(),
             access_token: body["access_token"].as_str().unwrap_or_default().to_string(),
+            xuid:         String::new(),
+            client_id:    String::new(),
         };
         let _ = save_json(&anvil_session_path(&state.data_dir), &session);
         let result = AnvilLoginResult {
@@ -1616,6 +2315,8 @@ async fn anvil_session_restore(state: State<'_, AppState>) -> Result<Option<Anvi
                 username:     body["username"].as_str().unwrap_or(&saved.username).to_string(),
                 uuid:         body["uuid"].as_str().unwrap_or(&saved.uuid).to_string(),
                 access_token: saved.access_token,
+                xuid:         saved.xuid,
+                client_id:    saved.client_id,
             }
         }
         Ok(resp) => {
@@ -1662,6 +2363,7 @@ fn set_custom_session(state: State<'_, AppState>, session: Option<CustomSession>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()
                 .unwrap_or_else(|_| dirs::data_local_dir().unwrap_or_default().join("HomeLauncher"));
@@ -1680,8 +2382,23 @@ pub fn run() {
             // Appliquer les options de fenêtre depuis config.json
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_title(&config.app_name);
-                let _ = win.set_decorations(config.window_decorations);
-                let _ = win.set_resizable(config.window_resizable);
+                let _ = win.set_decorations(config.window.decorations);
+                let _ = win.set_resizable(config.window.resizable);
+                let _ = win.set_shadow(config.window.shadow);
+                let _ = win.set_size(tauri::LogicalSize::new(
+                    config.window.width.max(800) as f64,
+                    config.window.height.max(520) as f64,
+                ));
+                let _ = win.center();
+                #[cfg(debug_assertions)]
+                if !config.window.devtools {
+                    win.close_devtools();
+                    #[cfg(windows)]
+                    disable_native_devtools(&win);
+                    let _ = win.eval(
+                        "window.addEventListener('keydown',e=>{if(e.key==='F12'||(e.ctrlKey&&e.shiftKey&&['I','J','C'].includes(e.key.toUpperCase()))){e.preventDefault();e.stopImmediatePropagation()}},true);window.addEventListener('contextmenu',e=>e.preventDefault(),true);"
+                    );
+                }
             }
 
             app.manage(AppState {
@@ -1689,6 +2406,7 @@ pub fn run() {
                 settings:       Mutex::new(settings),
                 data_dir,
                 custom_session: Mutex::new(None),
+                microsoft_login: Mutex::new(None),
                 running:        Mutex::new(HashMap::new()),
             });
             if cfg!(debug_assertions) {
@@ -1700,14 +2418,18 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_server_config,
-            get_settings, save_settings,
+            get_settings, save_settings, get_system_memory,
             get_default_launcher_dir, get_init_status,
             run_setup, verify_game, launch_game,
             stop_game, get_running_instances,
             get_mods, add_mod, remove_mod, set_mod_enabled,
-            open_mods_folder, open_instance_folder,
+            open_mods_folder, open_instance_folder, open_logs_folder, pick_folder,
+            reset_launcher_dir,
             check_update, do_update,
             set_custom_session,
+            microsoft_session_login,
+            microsoft_session_start, microsoft_session_finish,
+            microsoft_session_restore, microsoft_session_logout,
             anvil_session_login, anvil_session_restore, anvil_session_logout,
             get_launcher_version,
         ])

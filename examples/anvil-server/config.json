@@ -10,6 +10,13 @@
   "session": "anvil-session",
   "anvil-server": "http://localhost:8080",
   "anvil-key": "anvil_REPLACE_WITH_A_KEY_FROM_THE_WEB_UI",
-  "window_decorations": true,
-  "window_resizable": false
+  "window": {
+    "decorations": true,
+    "resizable": false,
+    "width": 1000,
+    "height": 660,
+    "shadow": true,
+    "transparent": false,
+    "devtools": true
+  }
 }

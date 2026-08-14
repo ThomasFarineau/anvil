@@ -52,6 +52,42 @@ export const MC = {
   setSession: (session) => _invoke('set_custom_session', { session }),
   clearSession: () => _invoke('set_custom_session', { session: null }),
 
+  // ── Microsoft account ("session": "microsoft") ───────────
+  microsoftSession: {
+    // Opens the Microsoft validation page in the default browser and returns
+    // the code that must be entered there.
+    start: () => _invoke('microsoft_session_start'),
+    // Waits for browser validation, then resolves the Minecraft Java profile.
+    finish: () => _invoke('microsoft_session_finish'),
+    // Convenience flow used by the bundled templates. The native backend
+    // opens the browser; the callback can render the code in a custom UI.
+    login: async (onCode = null) => {
+      const device = await _invoke('microsoft_session_start');
+      if (onCode) {
+        await onCode(device);
+      } else {
+        window.alert(
+          `Enter code ${device.user_code} at ${device.verification_uri}`,
+        );
+      }
+      return _invoke('microsoft_session_finish');
+    },
+    // Restores and refreshes the locally persisted session.
+    restore: () => _invoke('microsoft_session_restore'),
+    logout: () => _invoke('microsoft_session_logout'),
+  },
+
+  // ── Session anvil-server ("session": "anvil-session") ─────
+  anvilSession: {
+    // Résout en { status: 'ok' | 'totp_required', username, uuid }.
+    // Rejette avec un message d'erreur si identifiants/code invalides.
+    login: (username, password, code = null) =>
+      _invoke('anvil_session_login', { username, password, code }),
+    // Restaure la session persistée (null si aucune/expirée).
+    restore: () => _invoke('anvil_session_restore'),
+    logout: () => _invoke('anvil_session_logout'),
+  },
+
   // ── Window ─────────────────────────────────────────────────
   close: () => _window.getCurrentWindow().close(),
   minimize: () => _window.getCurrentWindow().minimize(),
@@ -60,6 +96,9 @@ export const MC = {
 
   // ── Events ─────────────────────────────────────────────────
   on: {
+    install: (cb) => _listen('install', cb),
+    installing: (cb) => _listen('installing', cb),
+    reset: (cb) => _listen('reset', cb),
     setupProgress: (cb) => _listen('setup:progress', (e) => cb(e.payload)),
     setupDone: (cb) => _listen('setup:done', cb),
     gameStarting: (cb) => _listen('game:starting', (e) => cb(e.payload)),

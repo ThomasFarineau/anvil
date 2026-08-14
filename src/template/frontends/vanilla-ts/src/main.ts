@@ -11,7 +11,27 @@ const [config, settings, initStatus] = await Promise.all([
   MC.getInitStatus(),
 ]);
 
-if (settings.username) {
+let microsoftReady = false;
+const microsoftRestore =
+  config.session === 'microsoft'
+    ? MC.microsoftSession
+        .restore()
+        .then((session) => {
+          if (!session) return;
+          microsoftReady = true;
+          $<HTMLInputElement>('username-input').value = session.username;
+          updateButtons();
+        })
+        .catch((e) => {
+          $('game-status').textContent = `Microsoft: ${e}`;
+        })
+    : Promise.resolve();
+
+if (config.session === 'microsoft') {
+  const input = $<HTMLInputElement>('username-input');
+  input.readOnly = true;
+  input.placeholder = 'Microsoft account';
+} else if (settings.username) {
   $<HTMLInputElement>('username-input').value = settings.username;
 }
 
@@ -84,7 +104,9 @@ function updateButtons(): void {
   document
     .querySelectorAll<HTMLButtonElement>('.instance-btn')
     .forEach((btn) => {
-      if (!btn.dataset.running) btn.disabled = !username;
+      if (!btn.dataset.running) {
+        btn.disabled = config.session !== 'microsoft' && !username;
+      }
     });
 }
 
@@ -94,11 +116,29 @@ async function onPlay(instanceId: string): Promise<void> {
     await MC.stop(instanceId).catch(() => {});
     return;
   }
-  const username = $<HTMLInputElement>('username-input').value.trim();
-  if (!username) return;
-  const current = await MC.getSettings();
-  await MC.saveSettings({ ...current, username });
   try {
+    await microsoftRestore;
+    if (config.session === 'microsoft') {
+      const restored = await MC.microsoftSession.restore();
+      if (restored) {
+        microsoftReady = true;
+        $<HTMLInputElement>('username-input').value = restored.username;
+      } else {
+        microsoftReady = false;
+      }
+    }
+    if (config.session === 'microsoft' && !microsoftReady) {
+      $('game-status').textContent = 'Opening Microsoft sign-in…';
+      const session = await MC.microsoftSession.signIn();
+      microsoftReady = true;
+      $<HTMLInputElement>('username-input').value = session.username;
+      $('game-status').textContent = `Connected as ${session.username}.`;
+      updateButtons();
+    }
+    const username = $<HTMLInputElement>('username-input').value.trim();
+    if (!username) return;
+    const current = await MC.getSettings();
+    await MC.saveSettings({ ...current, username });
     await MC.verify(instanceId);
     await MC.play(instanceId);
   } catch (e) {

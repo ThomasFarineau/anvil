@@ -8,8 +8,15 @@
   "update_url": "",
   "logo": "logo.svg",
   "session": "none",
-  "window_decorations": true,
-  "window_resizable": false,
+  "window": {
+    "decorations": true,
+    "resizable": false,
+    "width": 1000,
+    "height": 660,
+    "shadow": true,
+    "transparent": false,
+    "devtools": true
+  },
   "instances": [
     {
       "id": "survival",

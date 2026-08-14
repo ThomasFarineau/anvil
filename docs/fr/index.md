@@ -27,6 +27,6 @@ features:
     details: Déclarez des mods dans config.json, ils sont téléchargés, vérifiés et resynchronisés automatiquement.
   - title: Mises à jour & icônes automatiques
     details: Diffusez des manifestes de mise à jour via URL et générez toutes les tailles d'icônes depuis un seul logo.
-  - title: Sessions personnalisées
-    details: Utilisez votre propre authentification (OAuth, API maison…) ou le mode offline prêt à l'emploi.
+  - title: Sessions Microsoft et personnalisées
+    details: Connectez un compte Microsoft, utilisez votre propre authentification ou jouez hors ligne.
 ---

@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "identifier": "{{identifier}}",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../src",
+    "additionalWatchFolders": ["../config.json"]
   },
   "app": {
     "withGlobalTauri": true,
@@ -15,6 +16,7 @@
         "height": 660,
         "minWidth": 800,
         "minHeight": 520,
+        "center": true,
         "resizable": true,
         "fullscreen": false,
         "decorations": true
